@@ -24,7 +24,7 @@ export function LanguagePreference({ defaultMode }: LanguagePreferenceProps) {
         type="button"
         className={`
           flex items-center gap-2
-          rounded-sm
+          rounded-full
           px-6 py-3
           text-lg font-medium
           transition-colors duration-300
@@ -54,7 +54,7 @@ export function LanguagePreference({ defaultMode }: LanguagePreferenceProps) {
           group-hover:opacity-100        
         "
       >
-        <div className="border border-border bg-white p-2 shadow-sm rounded-md">
+        <div className="border border-border bg-white p-3 shadow-sm rounded-xl">
           {languages.map((language) => (
             <button
               key={language.name}

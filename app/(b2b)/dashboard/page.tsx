@@ -1,58 +1,74 @@
+"use client";
+
+import {
+  ClipboardText,
+  ChartLineUp,
+  Warning,
+  CheckCircle,
+  GridFour,
+} from "@phosphor-icons/react";
+
+import KpiCard from "@/components/b2b/ui/KpiCard";
+import ApplicationTrend from "@/components/b2b/charts/ApplicationTrend";
+import ScoreDistribution from "@/components/b2b/charts/ScoreDistribution";
+
+const kpis = [
+  {
+    label: "Total Applications",
+    value: "1,284",
+    icon: ClipboardText,
+  },
+  {
+    label: "Average Score",
+    value: "76.4",
+    icon: ChartLineUp,
+  },
+  {
+    label: "High Risk",
+    value: "124",
+    icon: Warning,
+  },
+  {
+    label: "Scored This Month",
+    value: "342",
+    icon: CheckCircle,
+  },
+];
+
 export default function DashboardPage() {
   return (
-    <div className="p-8">
-      {/* Page Header */}
-      <div className="mb-8">
-        <p className="text-sm font-medium text-muted">Overview</p>
-
-        <h1 className="mt-1 text-2xl font-semibold text-foreground">
-          Dashboard
-        </h1>
-
-        <p className="mt-2 text-sm text-muted">
-          Monitor your credit scoring activity and portfolio performance.
-        </p>
+    <div className="p-5">
+      <div className="mb-4">
+        <h1 className="text-[28px] font-medium text-foreground">Dashboard</h1>
       </div>
 
-      {/* Example Content */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            label: "Total Applications",
-            value: "1,284",
-          },
-          {
-            label: "Average Score",
-            value: "76.4",
-          },
-          {
-            label: "High Risk",
-            value: "124",
-          },
-          {
-            label: "Scored This Month",
-            value: "342",
-          },
-        ].map((item) => (
-          <div key={item.label} className="border border-border bg-surface p-6">
-            <p className="text-sm text-muted">{item.label}</p>
+      {/* Overview */}
+      <div className="flex flex-col gap-2 border-border bg-surface p-6 shadow-sm">
+        <div className="flex items-center gap-2 mb-1">
+          <GridFour
+            size={22}
+            weight="fill"
+            className="text-foreground/80"
+          />
 
-            <p className="mt-3 text-3xl font-semibold text-foreground">
-              {item.value}
-            </p>
-          </div>
-        ))}
+          <h2 className="text-xl font-semibold text-foreground/80">Overview</h2>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+          {kpis.map((kpi) => (
+            <KpiCard
+              key={kpi.label}
+              label={kpi.label}
+              value={kpi.value}
+              icon={kpi.icon}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Example Section */}
-      <div className="mt-8 border border-border bg-surface p-6">
-        <h2 className="text-lg font-semibold text-foreground">
-          Recent Applications
-        </h2>
-
-        <p className="mt-1 text-sm text-muted">
-          Your latest credit scoring applications will appear here.
-        </p>
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <ApplicationTrend />
+        <ScoreDistribution />
       </div>
     </div>
   );

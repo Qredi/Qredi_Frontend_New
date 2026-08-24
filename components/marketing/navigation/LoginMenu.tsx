@@ -31,16 +31,16 @@ export function LoginMenu({ defaultMode }: LoginMenuProps) {
         type="button"
         className="
           flex cursor-pointer items-center gap-2
-          rounded-sm bg-foreground
+          rounded-full bg-primary
           px-6 py-3
           text-lg font-medium text-white
           transition-colors duration-300
-          hover:bg-foreground/90
+          hover:bg-primary-foreground
         "
       >
         <User size={18} weight="bold" />
 
-        <span>Masuk ke Akun</span>
+        <span>Masuk</span>
 
         <CaretDown
           size={14}
@@ -61,7 +61,7 @@ export function LoginMenu({ defaultMode }: LoginMenuProps) {
           group-hover:opacity-100
         "
       >
-        <div className="rounded-md border border-border bg-white p-2 shadow-sm">
+        <div className="rounded-xl border border-border bg-white p-3 shadow-sm">
           {loginItems.map((item) => {
             const Logo = item.logo;
 

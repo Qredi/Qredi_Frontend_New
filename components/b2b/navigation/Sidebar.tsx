@@ -10,7 +10,6 @@ import {
   Gear,
   Question,
 } from "@phosphor-icons/react";
-import { QrediDashboardLogo } from "@/components/branding/QrediDashboardLogo";
 
 const mainNavItems = [
   {
@@ -91,20 +90,8 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-surface border-r border-border">
-      {/* Logo */}
-      <div className="flex h-20 shrink-0 items-center px-6">
-        <Link
-          href="/dashboard"
-          aria-label="Qredi Dashboard"
-          className="text-xl font-semibold tracking-tight text-foreground"
-        >
-          <QrediDashboardLogo className="h-10 text-foreground" />
-        </Link>
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex flex-1 flex-col px-4 mt-2">
+    <aside className="fixed inset-x-0 bottom-0 left-0 top-16 z-40 flex w-64 flex-col bg-surface">
+      <nav className="flex flex-1 flex-col p-4">
         {/* Main Navigation */}
         <div className="flex flex-col gap-1">
           {mainNavItems.map((item) => renderNavItem(item))}

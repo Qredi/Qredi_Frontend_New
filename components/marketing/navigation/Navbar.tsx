@@ -90,18 +90,18 @@ export default function Navbar() {
 
         {/* Navigation */}
         <div
-          className={`overflow-hidden transition-all duration-300 ease-out w-full  ${
+          className={`overflow-hidden transition-all duration-300 ease-out w-full border-b border-border  ${
             menuOpen ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
           }`}
         >
-          <div className="px-24 pb-4">
+          <div className="px-24 pb-4 ">
             <div className="flex items-center gap-10">
               {navItems.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={() => setMenuOpen(false)}
-                  className="group relative py-2 text-base font-medium text-foreground/80 hover:font-semibold hover:text-foreground transitions-all"
+                  className="group relative py-2 text-base font-medium text-foreground/80 hover:font-semibold hover:text-foreground transitions-all "
                 >
                   {item.label}
 
