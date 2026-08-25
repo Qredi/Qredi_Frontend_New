@@ -153,12 +153,12 @@ export default function ApplicationDetailPage() {
 
       {/* Tab Navigation */}
       <div className="border-b border-border mb-6">
-        <nav className="-mb-px flex gap-6">
+        <nav className="-mb-px flex gap-2">
           <button
             onClick={() => setActiveTab("overview")}
-            className={`flex items-center gap-2 border-b-2 py-3 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
               activeTab === "overview"
-                ? "border-primary text-primary"
+                ? "border-primary bg-primary/5 text-primary"
                 : "border-transparent text-muted hover:border-border hover:text-foreground"
             }`}
           >
@@ -167,9 +167,9 @@ export default function ApplicationDetailPage() {
           </button>
           <button
             onClick={() => setActiveTab("score")}
-            className={`flex items-center gap-2 border-b-2 py-3 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
               activeTab === "score"
-                ? "border-primary text-primary"
+                ? "border-primary bg-primary/5 text-primary"
                 : "border-transparent text-muted hover:border-border hover:text-foreground"
             }`}
           >
@@ -178,9 +178,9 @@ export default function ApplicationDetailPage() {
           </button>
           <button
             onClick={() => setActiveTab("fraud")}
-            className={`flex items-center gap-2 border-b-2 py-3 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
               activeTab === "fraud"
-                ? "border-primary text-primary"
+                ? "border-primary bg-primary/5 text-primary"
                 : "border-transparent text-muted hover:border-border hover:text-foreground"
             }`}
           >
@@ -189,9 +189,9 @@ export default function ApplicationDetailPage() {
           </button>
           <button
             onClick={() => setActiveTab("business")}
-            className={`flex items-center gap-2 border-b-2 py-3 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
               activeTab === "business"
-                ? "border-primary text-primary"
+                ? "border-primary bg-primary/5 text-primary"
                 : "border-transparent text-muted hover:border-border hover:text-foreground"
             }`}
           >
@@ -209,7 +209,7 @@ export default function ApplicationDetailPage() {
             <h3 className="text-lg font-semibold text-foreground mb-4 border-b border-border pb-3">
               Business Profile
             </h3>
-            <div className="space-y-4 text-sm">
+            <div className="space-y-4 text-base">
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-muted">Business Name</span>
                 <span className="font-medium text-foreground">
@@ -248,7 +248,7 @@ export default function ApplicationDetailPage() {
             <h3 className="text-lg font-semibold text-foreground mb-4 border-b border-border pb-3">
               Transaction Summary (QRIS)
             </h3>
-            <div className="space-y-4 text-sm">
+            <div className="space-y-4 text-base">
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-muted">Total Transactions</span>
                 <span className="font-medium text-foreground">
@@ -299,7 +299,7 @@ export default function ApplicationDetailPage() {
 
           <div className="space-y-4">
             {MOCK_DETAIL_DATA.shapFactors.map((item, idx) => (
-              <div key={idx} className="flex items-center gap-4 text-sm">
+              <div key={idx} className="flex items-center gap-4 text-base">
                 {/* 1. Label Factor */}
                 <span className="w-52 shrink-0 font-medium text-foreground">
                   {item.factor}
@@ -365,15 +365,23 @@ export default function ApplicationDetailPage() {
                 className="flex items-center justify-between border border-border bg-background p-4 rounded-sm"
               >
                 <div>
-                  <p className="text-sm font-medium text-foreground">
+                  <p className="text-base font-medium text-foreground">
                     {ind.label}
                   </p>
-                  <p className="text-xs text-muted mt-0.5">{ind.status}</p>
+                  <p className="text-base text-muted mt-0.5">{ind.status}</p>
                 </div>
                 {ind.isAnomaly ? (
-                  <WarningCircle size={20} className="text-amber-500" />
+                  <WarningCircle
+                    size={24}
+                    className="text-amber-500"
+                    weight="fill"
+                  />
                 ) : (
-                  <CheckCircle size={20} className="text-emerald-500" />
+                  <CheckCircle
+                    size={24}
+                    className="text-emerald-600"
+                    weight="fill"
+                  />
                 )}
               </div>
             ))}
@@ -387,7 +395,7 @@ export default function ApplicationDetailPage() {
           <h3 className="text-lg font-semibold text-foreground mb-4 border-b border-border pb-3">
             Extracted Feature Metrics (XGBoost Input Data)
           </h3>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-base">
             <div className="border border-border p-4 bg-background">
               <p className="font-semibold text-foreground mb-2">
                 Transaction Metrics
