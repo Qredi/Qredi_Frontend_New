@@ -22,16 +22,6 @@ const mainNavItems = [
     href: "/dashboard/applications",
     icon: ClipboardText,
   },
-  {
-    label: "Risk Monitoring",
-    href: "/dashboard/risk-monitoring",
-    icon: Warning,
-  },
-  {
-    label: "Model Insights",
-    href: "/dashboard/model-insights",
-    icon: Brain,
-  },
 ];
 
 const secondaryNavItems = [

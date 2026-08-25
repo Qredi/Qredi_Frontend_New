@@ -12,7 +12,7 @@ export default function KpiCard({
   icon: IconComponent,
 }: KpiCardProps) {
   return (
-    <div className="relative border border-border bg-surface p-6">
+    <div className="relative border border-border bg-slate-50 p-6">
       {/* Icon */}
       <div className="absolute right-5 top-5 flex h-10 w-10 items-center justify-center rounded-md bg-primary/5 text-primary">
         <IconComponent size={22} weight="regular" />
