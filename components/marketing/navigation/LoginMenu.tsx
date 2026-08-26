@@ -18,7 +18,7 @@ const loginItems = [
   },
   {
     description: "Platform untuk UMKM mengelola profil kredit.",
-    href: "/myqredi",
+    href: "/myqredi/score",
     logo: MyQrediLogo,
   },
 ];
