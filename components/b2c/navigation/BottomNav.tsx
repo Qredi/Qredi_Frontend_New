@@ -12,7 +12,6 @@ export default function BottomNav() {
       label: "Skor Saya",
       href: "/myqredi/score",
       icon: Speedometer,
-      // Active jika berada di /myqredi/score atau sub-halaman detail skor
       isActive: pathname.startsWith("/myqredi/score"),
     },
     {
@@ -30,29 +29,33 @@ export default function BottomNav() {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 h-16 w-full border-t border-border bg-surface shadow-lg">
-      <div className="mx-auto flex h-full max-w-md items-center justify-around px-2">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex flex-1 flex-col items-center justify-center py-1.5 transition-colors ${
-                item.isActive
-                  ? "text-primary font-semibold"
-                  : "text-muted/80 hover:text-foreground font-medium"
-              }`}
-            >
-              <Icon
-                size={24}
-                weight={item.isActive ? "fill" : "regular"}
-                className="mb-0.5"
-              />
-              <span className="text-xs tracking-tight">{item.label}</span>
-            </Link>
-          );
-        })}
+    <nav className="fixed inset-x-0 bottom-0 z-40 h-16 pointer-events-none">
+      <div className="mx-auto h-full w-full max-w-md border-t border-border bg-surface shadow-lg pointer-events-auto">
+        <div className="flex h-full items-center justify-around px-2">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-1 flex-col items-center justify-center py-1.5 transition-colors ${
+                  item.isActive
+                    ? "font-semibold text-primary"
+                    : "font-medium text-muted/80 hover:text-foreground"
+                }`}
+              >
+                <Icon
+                  size={24}
+                  weight={item.isActive ? "fill" : "regular"}
+                  className="mb-0.5"
+                />
+
+                <span className="text-xs tracking-tight">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
       </div>
     </nav>
   );

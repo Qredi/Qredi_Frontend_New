@@ -10,7 +10,7 @@ export default function MyQrediLayout({
   return (
     <div className="min-h-screen bg-gray-100 text-foreground flex justify-center">
       {/* Container utama dibatasi ukurannya ala mobile screen (max-w-md) */}
-      <div className="relative flex w-full max-w-md flex-col min-h-screen bg-surface shadow-xl">
+      <div className="relative flex w-full max-w-md flex-col min-h-screen bg-surface">
         {/* Topbar Navigation */}
         <Topbar />
 
