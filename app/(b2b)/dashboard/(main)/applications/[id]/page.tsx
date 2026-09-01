@@ -89,7 +89,7 @@ export default function ApplicationDetailPage() {
       <div className="mb-4">
         <Link
           href="/dashboard/applications"
-          className="mb-2 inline-flex items-center gap-1.5 text-base font-medium text-muted hover:text-foreground transition-colors"
+          className="mb-2 inline-flex items-center gap-1.5 text-base font-medium text-muted hover:text-foreground hover:underline transition-colors"
         >
           <ArrowLeft size={20} />
           Back to Applications

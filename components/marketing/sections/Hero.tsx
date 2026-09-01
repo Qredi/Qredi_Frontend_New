@@ -7,7 +7,7 @@ import { ArrowRight } from "@phosphor-icons/react";
 export default function Hero() {
   return (
     <section className="relative overflow-hidden bg-surface">
-      <div className="mx-auto max-w-7xl px-6 pt-20 pb-4 lg:px-12">
+      <div className="mx-auto max-w-7xl px-6 pt-20 pb-8 lg:px-12">
         <div className="grid w-full grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
           {/* Left Content */}
           <div className="flex flex-col justify-center">

@@ -15,7 +15,7 @@ const steps = [
     number: "02",
     title: "Data Dianalisis",
     description:
-      "Data diproses menggunakan model alternative credit scoring untuk menemukan pola dan karakteristik yang relevan.",
+      "Data transaksi diolah menjadi berbagai indikator seperti frekuensi, nilai, konsistensi, tren omzet, dan perubahan aktivitas bisnis, kemudian dianalisis oleh model AI/ML untuk mengenali pola usaha dan tingkat risikonya.",
   },
   {
     number: "03",
