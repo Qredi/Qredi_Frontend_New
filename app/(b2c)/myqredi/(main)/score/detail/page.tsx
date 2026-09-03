@@ -1,51 +1,98 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Sparkle } from "@phosphor-icons/react";
 import ScoreGauge from "@/components/b2c/score/ScoreGauge";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { apiFetch } from "@/lib/api";
+import type { ScoreOut } from "@/lib/types";
 
-const SCORE_DATA = {
-  businessName: "Kedai Kopi Nusantara",
-  score: 82,
-  category: "Baik",
-  lastUpdated: "26 Agustus 2026",
+interface ScoreFactor {
+  label: string;
+  value: string;
+  percentage: number;
+  valueColor: string;
+  barColor: string;
+}
 
-  factors: [
-    {
-      label: "Konsistensi Transaksi",
-      value: "Sangat Baik",
-      percentage: 90,
-      valueColor: "text-emerald-600",
-      barColor: "bg-emerald-500",
-    },
-    {
-      label: "Aktivitas Transaksi",
-      value: "Baik",
-      percentage: 78,
-      valueColor: "text-emerald-600",
-      barColor: "bg-emerald-500",
-    },
-    {
-      label: "Stabilitas Omzet",
-      value: "Baik",
-      percentage: 75,
-      valueColor: "text-emerald-600",
-      barColor: "bg-emerald-500",
-    },
-    {
-      label: "Riwayat Transaksi",
-      value: "Cukup",
-      percentage: 60,
-      valueColor: "text-amber-600",
-      barColor: "bg-amber-500",
-    },
-  ],
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+  "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
+];
 
-  insight:
-    "Konsistensi transaksi dan stabilitas omzet menjadi faktor utama yang mendukung skor Anda saat ini.",
-};
+const DEFAULT_FACTORS: ScoreFactor[] = [
+  {
+    label: "Konsistensi Transaksi",
+    value: "Baik",
+    percentage: 75,
+    valueColor: "text-emerald-600",
+    barColor: "bg-emerald-500",
+  },
+  {
+    label: "Stabilitas Omzet",
+    value: "Sedang",
+    percentage: 55,
+    valueColor: "text-amber-600",
+    barColor: "bg-amber-500",
+  },
+  {
+    label: "Riwayat Pembayaran",
+    value: "Baik",
+    percentage: 80,
+    valueColor: "text-emerald-600",
+    barColor: "bg-emerald-500",
+  },
+];
+
+function getRiskCategory(score: number): string {
+  if (score >= 70) return "Baik";
+  if (score >= 50) return "Sedang";
+  return "Rendah";
+}
 
 export default function ScoreDetailPage() {
+  const { user } = useAuth();
+  const [score, setScore] = useState<number>(0);
+  const [riskCategory, setRiskCategory] = useState<string>("");
+  const [lastUpdated, setLastUpdated] = useState<string>("");
+  const [factors, setFactors] = useState<ScoreFactor[]>(DEFAULT_FACTORS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+
+    async function load() {
+      try {
+        const latestScore = await apiFetch<ScoreOut>("/scores/me/latest");
+
+        const displayScore = Math.round(latestScore.acs_score);
+        setScore(displayScore);
+        setRiskCategory(getRiskCategory(displayScore));
+
+        const d = new Date(latestScore.created_at ?? Date.now());
+        setLastUpdated(
+          `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`,
+        );
+      } catch {
+        setFactors(DEFAULT_FACTORS);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-10 bg-slate-100 animate-pulse rounded-lg" />
+        <div className="h-48 bg-slate-100 animate-pulse rounded-lg" />
+        <div className="h-40 bg-slate-100 animate-pulse rounded-lg" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -71,10 +118,10 @@ export default function ScoreDetailPage() {
           </p>
         </div>
 
-        <ScoreGauge score={SCORE_DATA.score} statusText={SCORE_DATA.category} />
+        <ScoreGauge score={score} statusText={riskCategory} />
 
         <p className="mt-3 text-xs text-muted">
-          Terakhir diperbarui {SCORE_DATA.lastUpdated}
+          Terakhir diperbarui {lastUpdated}
         </p>
       </div>
 
@@ -85,13 +132,11 @@ export default function ScoreDetailPage() {
         </h2>
 
         <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
-          {SCORE_DATA.factors.map((factor, index) => (
+          {factors.map((factor, index) => (
             <div
               key={factor.label}
               className={`p-4 ${
-                index !== SCORE_DATA.factors.length - 1
-                  ? "border-b border-border"
-                  : ""
+                index !== factors.length - 1 ? "border-b border-border" : ""
               }`}
             >
               <div className="flex items-center justify-between gap-3">
@@ -126,7 +171,8 @@ export default function ScoreDetailPage() {
         </div>
 
         <p className="mt-2 text-sm leading-relaxed text-foreground/80">
-          {SCORE_DATA.insight}
+          Konsistensi transaksi dan stabilitas omzet menjadi faktor utama yang
+          mendukung skor Anda saat ini.
         </p>
       </div>
     </div>

@@ -1,43 +1,33 @@
 "use client";
 
-import Link from "next/link";
-import { Bell, Question } from "@phosphor-icons/react";
-import { MyQrediLogo } from "@/components/branding/MyQrediLogo";
+import { useAuth } from "@/components/providers/AuthProvider";
 
-interface TopbarProps {
-  hasUnreadNotification?: boolean;
-}
+export default function Topbar() {
+  const { user } = useAuth();
 
-export default function Topbar({ hasUnreadNotification = true }: TopbarProps) {
   return (
-    <header className="sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b border-border bg-surface px-4">
-      {/* Brand Logo */}
-      <Link href="/myqredi/score" className="flex items-center gap-2">
-        <MyQrediLogo className="h-9 text-foreground" />
-      </Link>
+    <header
+      className="
+        sticky top-0 z-30
+        flex h-16 shrink-0
+        items-center justify-between
+        border-b border-border
+        bg-surface
+        px-4
+      "
+    >
+      <div className="w-8" />
 
-      {/* Quick Action Buttons */}
-      <div className="flex items-center gap-1">
-        {/* Help Button */}
-        <Link
-          href="/myqredi/help"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-slate-100 hover:text-foreground transition-colors"
-          aria-label="Bantuan"
-        >
-          <Question size={22} />
-        </Link>
-
-        {/* Notification Button */}
-        <Link
-          href="/myqredi/notifications"
-          className="relative flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-slate-100 hover:text-foreground transition-colors"
-          aria-label="Notifikasi"
-        >
-          <Bell size={22} />
-          {hasUnreadNotification && (
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-surface" />
-          )}
-        </Link>
+      {/* Profile Info */}
+      <div className="flex items-center gap-3">
+        <div className="flex flex-col items-end">
+          <span className="text-sm font-medium leading-tight text-foreground">
+            {user?.full_name ?? "Loading..."}
+          </span>
+          <span className="mt-0.5 text-xs leading-tight text-muted capitalize">
+            {user?.role ?? ""}
+          </span>
+        </div>
       </div>
     </header>
   );

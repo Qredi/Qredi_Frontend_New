@@ -1,32 +1,77 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { MagnifyingGlass, Funnel, Rows } from "@phosphor-icons/react";
 import ApplicationsTable from "@/components/b2b/tables/ApplicationsTable";
-import { MOCK_APPLICATIONS, Application } from "@/data/mockApplications";
+import { apiFetch } from "@/lib/api";
+import type { UserOut, ScoreOut } from "@/lib/types";
+import {
+  type Application,
+  riskToCap,
+} from "@/lib/applications";
 
 export default function ApplicationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [riskFilter, setRiskFilter] = useState<string>("All");
   const [fraudFilter, setFraudFilter] = useState<string>("All");
   const [scoreFilter, setScoreFilter] = useState<string>("All");
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const users = await apiFetch<UserOut[]>("/users/?role=umkm&limit=50");
+        const apps: Application[] = await Promise.all(
+          users.slice(0, 50).map(async (u) => {
+            let score: ScoreOut | null = null;
+            try {
+              score = await apiFetch<ScoreOut>(
+                `/scores/by-user/${u.id}/latest`,
+              );
+            } catch {
+              // no score
+            }
+
+            const displayScore = score ? Math.round(score.acs_score) : 0;
+
+            return {
+              id: u.id,
+              merchantName: u.full_name,
+              businessType: "UMKM",
+              creditScore: displayScore,
+              riskLevel: riskToCap(score?.risk_level ?? "medium"),
+              fraudRisk: "Low" as const,
+              requestedAmount: "Rp 50.000.000",
+              submittedAt: "",
+              userId: u.id,
+              profile: null,
+              score,
+            };
+          }),
+        );
+        setApplications(apps);
+      } catch {
+        // keep empty
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   const filteredApplications = useMemo(() => {
-    return MOCK_APPLICATIONS.filter((item) => {
-      // Search Matching (ID or Merchant Name)
+    return applications.filter((item) => {
       const matchesSearch =
         item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.merchantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.businessType.toLowerCase().includes(searchQuery.toLowerCase());
 
-      // Risk Level Matching
       const matchesRisk = riskFilter === "All" || item.riskLevel === riskFilter;
 
-      // Fraud Risk Matching
       const matchesFraud =
         fraudFilter === "All" || item.fraudRisk === fraudFilter;
 
-      // Score Range Matching
       let matchesScore = true;
       if (scoreFilter === "0-50") matchesScore = item.creditScore <= 50;
       else if (scoreFilter === "51-70")
@@ -39,7 +84,7 @@ export default function ApplicationsPage() {
 
       return matchesSearch && matchesRisk && matchesFraud && matchesScore;
     });
-  }, [searchQuery, riskFilter, fraudFilter, scoreFilter]);
+  }, [applications, searchQuery, riskFilter, fraudFilter, scoreFilter]);
 
   return (
     <div className="p-5">
@@ -132,7 +177,9 @@ export default function ApplicationsPage() {
         </div>
 
         {/* Applications Table */}
-        {filteredApplications.length > 0 ? (
+        {loading ? (
+          <div className="py-12 text-center text-muted">Loading...</div>
+        ) : filteredApplications.length > 0 ? (
           <ApplicationsTable data={filteredApplications} />
         ) : (
           <div className="py-12 text-center text-muted">

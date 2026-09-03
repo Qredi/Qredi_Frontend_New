@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { Application } from "@/data/mockApplications";
+import type { Application } from "@/lib/applications";
 
 interface ApplicationsTableProps {
   data: Application[];
@@ -48,7 +48,6 @@ export default function ApplicationsTable({
             <th className="px-4 py-3.5">Risk Level</th>
             <th className="px-4 py-3.5">Fraud Risk</th>
             <th className="px-4 py-3.5">Requested Amount</th>
-            <th className="px-4 py-3.5">Submitted At</th>
             <th className="px-4 py-3.5 text-right">Action</th>
           </tr>
         </thead>
@@ -59,7 +58,7 @@ export default function ApplicationsTable({
               className="hover:bg-slate-50/60 transition-colors"
             >
               <td className="px-4 py-4 font-mono font-medium text-foreground">
-                {item.id}
+                {item.id.slice(0, 8)}
               </td>
               <td className="px-4 py-4">
                 <div className="font-medium text-foreground">
@@ -94,10 +93,9 @@ export default function ApplicationsTable({
               <td className="px-4 py-4 font-medium text-foreground">
                 {item.requestedAmount}
               </td>
-              <td className="px-4 py-4 text-muted">{item.submittedAt}</td>
               <td className="px-4 py-4 text-right">
                 <Link
-                  href={`/dashboard/applications/${item.id}`}
+                  href={`/dashboard/applications/${item.userId}`}
                   className="inline-flex items-center gap-1 font-medium text-sky-600 hover:underline"
                 >
                   View Detail

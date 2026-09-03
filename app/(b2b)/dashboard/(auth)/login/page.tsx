@@ -1,12 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, SignIn } from "@phosphor-icons/react";
+import { useState } from "react";
 import { QrediDashboardLogo } from "@/components/branding/QrediDashboardLogo";
 import { InputField } from "@/components/ui/InputField";
 import { Button } from "@/components/ui/Button";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { ApiError } from "@/lib/api";
 
 export default function LoginPage() {
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      await login(email, password);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.detail);
+      } else {
+        setError("Terjadi kesalahan. Silakan coba lagi.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface px-6 py-12">
       <div className="w-full max-w-md">
@@ -27,7 +52,7 @@ export default function LoginPage() {
         </div>
 
         {/* Login Form */}
-        <form className="mt-8 space-y-5">
+        <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
           <InputField
             id="email"
             name="email"
@@ -35,6 +60,8 @@ export default function LoginPage() {
             label="Email"
             placeholder="Masukkan email"
             autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
           />
 
           <InputField
@@ -44,7 +71,13 @@ export default function LoginPage() {
             label="Password"
             placeholder="Masukkan password"
             autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
           />
+
+          {error && (
+            <p className="text-sm text-red-500 text-center">{error}</p>
+          )}
 
           {/* Forgot Password */}
           <div className="flex justify-end">
@@ -57,8 +90,13 @@ export default function LoginPage() {
           </div>
 
           {/* Login Button */}
-          <Button type="submit" variant="primary" className="w-full">
-            Masuk ke Dashboard
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-full"
+            disabled={submitting}
+          >
+            {submitting ? "Masuk..." : "Masuk ke Dashboard"}
           </Button>
         </form>
       </div>

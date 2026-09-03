@@ -1,53 +1,88 @@
 "use client";
 
-import FinancingCard, {
-  FinancingItem,
-} from "@/components/b2c/financing/FinancingCard";
+import { useEffect, useState } from "react";
+import FinancingCard from "@/components/b2c/financing/FinancingCard";
+import type { FinancingItem } from "@/components/b2c/financing/FinancingCard";
+import { apiFetch } from "@/lib/api";
+import type { ScoreOut, MatchOut } from "@/lib/types";
 
-const MOCK_SCORE_SUMMARY = {
-  score: 82,
-  category: "Baik",
-};
+function getRiskCategory(score: number): string {
+  if (score >= 70) return "Baik";
+  if (score >= 50) return "Sedang";
+  return "Rendah";
+}
 
-const MOCK_FINANCING_DATA: FinancingItem[] = [
-  {
-    id: "kur-mikro-digital",
-    initial: "B",
-    title: "KUR Mikro Digital",
-    institution: "Bank Contoh",
-    plafon: "Rp50 Juta",
-    interest: "6%",
-    matchScore: "92%",
-    detailUrl: "/myqredi/financing/kur-mikro-digital",
-  },
-  {
-    id: "modal-usaha",
-    initial: "F",
-    title: "Modal Usaha",
-    institution: "Fintech Contoh",
-    plafon: "Rp100 Juta",
-    interest: "8%",
-    matchScore: "87%",
-    detailUrl: "/myqredi/financing/modal-usaha",
-  },
-  {
-    id: "dana-operasional",
-    initial: "M",
-    title: "Dana Operasional UMKM",
+const LENDER_PRODUCT_MAP: Record<
+  string,
+  { title: string; institution: string; initial: string }
+> = {};
+
+function resolveMatchToFinancingItem(match: MatchOut): FinancingItem {
+  const lenderInfo = LENDER_PRODUCT_MAP[match.lender_id] ?? {
+    title: "Pembiayaan UMKM",
     institution: "Mitra Keuangan",
-    plafon: "Rp25 Juta",
-    interest: "7%",
-    matchScore: "82%",
-    detailUrl: "/myqredi/financing/dana-operasional",
-  },
-];
+    initial: "M",
+  };
+
+  return {
+    id: match.id,
+    initial: lenderInfo.initial,
+    title: lenderInfo.title,
+    institution: lenderInfo.institution,
+    plafon: match.recommended_limit
+      ? `Rp${(match.recommended_limit / 1_000_000).toFixed(0)} Juta`
+      : "Hubungi Lender",
+    interest: match.recommended_interest
+      ? `${match.recommended_interest}%`
+      : "-",
+    matchScore: match.match_score
+      ? `${Math.round(match.match_score * 100)}%`
+      : "-",
+    detailUrl: `/myqredi/financing/${match.id}`,
+  };
+}
 
 export default function FinancingPage() {
-  const { score, category } = MOCK_SCORE_SUMMARY;
+  const [score, setScore] = useState<number>(0);
+  const [category, setCategory] = useState<string>("");
+  const [items, setItems] = useState<FinancingItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [latestScore, matches] = await Promise.all([
+          apiFetch<ScoreOut>("/scores/me/latest"),
+          apiFetch<MatchOut[]>("/matches/by-umkm/me"),
+        ]);
+
+        const displayScore = Math.round(latestScore.acs_score);
+        setScore(displayScore);
+        setCategory(getRiskCategory(displayScore));
+
+        setItems(matches.map(resolveMatchToFinancingItem));
+      } catch {
+        // keep defaults
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-28 bg-slate-100 animate-pulse rounded-2xl" />
+        <div className="h-20 bg-slate-100 animate-pulse rounded-2xl" />
+        <div className="h-20 bg-slate-100 animate-pulse rounded-2xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Card Ringkasan Skor Atas (Sesuai Referensi Gambar) */}
+      {/* Card Ringkasan Skor */}
       <div className="border border-border bg-surface p-5 rounded-2xl shadow-sm space-y-3">
         <div>
           <h1 className="text-lg font-bold text-foreground">
@@ -64,32 +99,24 @@ export default function FinancingPage() {
             {category}
           </span>
         </div>
-
-        {/* Progress Bar Horizontal (0 - 100) */}
-        {/* <div className="space-y-1 pt-1">
-          <div className="w-full bg-slate-100 rounded-sm h-2 overflow-hidden">
-            <div
-              className="bg-emerald-500 h-full rounded-sm transition-all duration-700"
-              style={{ width: `${score}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-[11px] font-medium text-slate-400 mt-2">
-            <span>0</span>
-            <span>100</span>
-          </div>
-        </div> */}
       </div>
 
-      {/* Section Rekomendasi Untuk Anda */}
+      {/* Section Rekomendasi */}
       <div className="space-y-4">
         <h2 className="text-base font-bold text-foreground px-0.5">
           Rekomendasi Untuk Anda
         </h2>
 
         <div className="space-y-4">
-          {MOCK_FINANCING_DATA.map((item) => (
-            <FinancingCard key={item.id} item={item} />
-          ))}
+          {items.length > 0 ? (
+            items.map((item) => (
+              <FinancingCard key={item.id} item={item} />
+            ))
+          ) : (
+            <div className="text-center py-8 text-muted">
+              Belum ada rekomendasi pembiayaan saat ini.
+            </div>
+          )}
         </div>
       </div>
     </div>

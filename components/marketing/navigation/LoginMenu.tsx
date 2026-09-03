@@ -13,12 +13,12 @@ interface LoginMenuProps {
 const loginItems = [
   {
     description: "Platform untuk lender dan institusi keuangan.",
-    href: "/dashboard",
+    href: "/dashboard/login",
     logo: QrediDashboardLogo,
   },
   {
     description: "Platform untuk UMKM mengelola profil kredit.",
-    href: "/myqredi/score",
+    href: "/myqredi/login",
     logo: MyQrediLogo,
   },
 ];

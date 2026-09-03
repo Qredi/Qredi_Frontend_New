@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   ClipboardText,
   ChartLineUp,
@@ -15,7 +16,12 @@ import KpiCard from "@/components/b2b/ui/KpiCard";
 import ApplicationTrend from "@/components/b2b/charts/ApplicationTrend";
 import ScoreDistribution from "@/components/b2b/charts/ScoreDistribution";
 import ApplicationsTable from "@/components/b2b/tables/ApplicationsTable";
-import { MOCK_APPLICATIONS } from "@/data/mockApplications";
+import { apiFetch } from "@/lib/api";
+import type { UserOut, ScoreOut } from "@/lib/types";
+import {
+  type Application,
+  riskToCap,
+} from "@/lib/applications";
 
 const kpis = [
   {
@@ -40,7 +46,90 @@ const kpis = [
   },
 ];
 
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function getDistributionBuckets(apps: Application[]): number[] {
+  const buckets = [0, 0, 0, 0, 0]; // 0-50, 51-70, 71-80, 81-90, 91-100
+  for (const app of apps) {
+    const s = app.creditScore;
+    if (s <= 50) buckets[0]++;
+    else if (s <= 70) buckets[1]++;
+    else if (s <= 80) buckets[2]++;
+    else if (s <= 90) buckets[3]++;
+    else buckets[4]++;
+  }
+  return buckets;
+}
+
+function getMonthlyTrend(apps: Application[]): { labels: string[]; data: number[] } {
+  const monthCounts = new Map<number, number>();
+  for (const app of apps) {
+    if (!app.score?.created_at) continue;
+    const month = new Date(app.score.created_at).getMonth();
+    monthCounts.set(month, (monthCounts.get(month) ?? 0) + 1);
+  }
+  const sortedMonths = [...monthCounts.keys()].sort((a, b) => a - b);
+  const labels = sortedMonths.map((m) => MONTH_NAMES[m]);
+  const data = sortedMonths.map((m) => monthCounts.get(m) ?? 0);
+  return { labels, data };
+}
+
 export default function DashboardPage() {
+  const [applications, setApplications] = useState<Application[]>([]);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const users = await apiFetch<UserOut[]>("/users/?role=umkm&limit=50");
+        const apps: Application[] = await Promise.all(
+          users.slice(0, 20).map(async (u) => {
+            let score: ScoreOut | null = null;
+            try {
+              score = await apiFetch<ScoreOut>(
+                `/scores/by-user/${u.id}/latest`,
+              );
+            } catch {
+              // no score
+            }
+
+            const displayScore = score ? Math.round(score.acs_score) : 0;
+
+            return {
+              id: u.id,
+              merchantName: u.full_name,
+              businessType: "UMKM",
+              creditScore: displayScore,
+              riskLevel: riskToCap(score?.risk_level ?? "medium"),
+              fraudRisk: "Low" as const,
+              requestedAmount: "Rp 50.000.000",
+              submittedAt: "",
+              userId: u.id,
+              profile: null,
+              score,
+            };
+          }),
+        );
+        setApplications(apps);
+      } catch {
+        // keep empty
+      }
+    }
+    load();
+  }, []);
+
   return (
     <div className="p-5">
       <div className="mb-4">
@@ -69,8 +158,11 @@ export default function DashboardPage() {
 
       {/* Charts */}
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <ApplicationTrend />
-        <ScoreDistribution />
+        <ApplicationTrend
+          labels={getMonthlyTrend(applications).labels}
+          data={getMonthlyTrend(applications).data}
+        />
+        <ScoreDistribution counts={getDistributionBuckets(applications)} />
       </div>
 
       {/* Recent Applications Table */}
@@ -96,7 +188,7 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <ApplicationsTable data={MOCK_APPLICATIONS} limit={5} />
+        <ApplicationsTable data={applications} limit={5} />
       </div>
     </div>
   );

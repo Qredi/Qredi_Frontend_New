@@ -2,8 +2,11 @@
 
 import { User } from "@phosphor-icons/react";
 import { QrediDashboardLogo } from "@/components/branding/QrediDashboardLogo";
+import { useAuth } from "@/components/providers/AuthProvider";
 
 export default function Topbar() {
+  const { user, logout } = useAuth();
+
   return (
     <header
       className="
@@ -21,6 +24,7 @@ export default function Topbar() {
       {/* Profile */}
       <button
         type="button"
+        onClick={logout}
         className="
           flex h-full items-center gap-3
           px-6 mr-8
@@ -38,10 +42,12 @@ export default function Topbar() {
         {/* Account Info */}
         <div className="flex flex-col">
           <span className="text-base font-medium leading-tight text-foreground">
-            Demo Account
+            {user?.full_name ?? "Loading..."}
           </span>
 
-          <span className="mt-1 text-xs leading-tight text-muted">Admin</span>
+          <span className="mt-1 text-xs leading-tight text-muted capitalize">
+            {user?.role ?? ""}
+          </span>
         </div>
       </button>
     </header>

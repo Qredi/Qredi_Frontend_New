@@ -2,61 +2,63 @@
 
 import Link from "next/link";
 import { ArrowLeft } from "@phosphor-icons/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import ChatBubble from "@/components/b2c/chat/ChatBubble";
 import ChatInput from "@/components/b2c/chat/ChatInput";
+import { chatHistory, type Message } from "@/lib/chat-history";
 
-interface Message {
-  role: "assistant" | "user";
-  content: string;
-}
-
-const initialMessages: Message[] = [
-  {
-    role: "assistant",
-    content:
-      "Halo! Saya Qredibot. Saya siap membantu Anda memahami skor dan profil kredit usaha Anda.",
-  },
-];
+const HISTORY_MAX_TURNS = 10;
 
 export default function ChatbotPage() {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
-
+  const messages = useSyncExternalStore(
+    chatHistory.subscribe,
+    chatHistory.getSnapshot,
+    chatHistory.getServerSnapshot,
+  );
   const [loading, setLoading] = useState(false);
-
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
+    bottomRef.current?.scrollIntoView();
   }, [messages, loading]);
 
   async function handleSend(message: string) {
-    const userMessage: Message = {
-      role: "user",
-      content: message,
-    };
-
+    const userMessage: Message = { role: "user", content: message };
     const nextMessages = [...messages, userMessage];
-
-    setMessages(nextMessages);
+    chatHistory.setMessages(nextMessages);
     setLoading(true);
 
-    // Mock response sementara.
-    // Nantinya bisa diganti dengan API /api/chat.
-    setTimeout(() => {
-      setMessages((prev) => [
+    const history = nextMessages.slice(-HISTORY_MAX_TURNS);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: message, history }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? `Request failed (${res.status})`);
+      }
+
+      const data = (await res.json()) as { answer: string };
+      chatHistory.setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.answer },
+      ]);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Unknown error";
+      chatHistory.setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content:
-            "Berdasarkan informasi yang tersedia, konsistensi transaksi dan stabilitas aktivitas usaha merupakan faktor penting dalam profil kredit Anda.",
+          content: `Maaf, terjadi kesalahan saat menghubungi asisten. (${detail})`,
         },
       ]);
-
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   }
 
   return (
@@ -103,12 +105,8 @@ export default function ChatbotPage() {
 
         {/* Chat Messages */}
         <main className="flex-1 space-y-4 bg-background p-4">
-          {messages.map((message, index) => (
-            <ChatBubble
-              key={index}
-              variant={message.role}
-              message={message.content}
-            />
+          {messages.map((m, i) => (
+            <ChatBubble key={i} variant={m.role} message={m.content} />
           ))}
 
           {loading && <ChatBubble variant="assistant" message="..." />}

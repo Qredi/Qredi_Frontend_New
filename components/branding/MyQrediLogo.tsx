@@ -1,6 +1,6 @@
 import * as React from "react";
 
-interface MyQrediLogoProps extends React.SVGProps<SVGSVGElement> {}
+type MyQrediLogoProps = React.SVGProps<SVGSVGElement>;
 
 export function MyQrediLogo({ className, ...props }: MyQrediLogoProps) {
   return (
