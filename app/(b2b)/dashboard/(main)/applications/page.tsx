@@ -33,7 +33,7 @@ export default function ApplicationsPage() {
               // no score
             }
 
-            const displayScore = score ? Math.round(score.acs_score) : 0;
+            const displayScore = score ? score.acs_score : 0;
 
             return {
               id: u.id,

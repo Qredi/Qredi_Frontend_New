@@ -68,7 +68,7 @@ export default function ApplicationsTable({
               </td>
               <td className="px-4 py-4">
                 <span className="font-semibold text-foreground">
-                  {item.creditScore}
+                  {Math.round(item.creditScore)}
                 </span>
                 <span className="text-xs text-muted"> / 100</span>
               </td>
