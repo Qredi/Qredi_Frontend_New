@@ -13,11 +13,16 @@ interface ChatMessage {
 interface ChatRequestBody {
   question: string;
   history?: ChatMessage[];
+  /** UUID user yang sedang login, dikirim dari client. */
+  userId?: string;
 }
 
 interface ChatTurnResult {
   answer: string;
 }
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function error(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -36,10 +41,13 @@ export async function POST(request: Request) {
     return error("`question` is required", 400);
   }
 
-  if (!AGENT_DEV_USER_ID) {
+  // Agent service memakai dev auth seam `X-User-Id`. Sumbernya user yang
+  // sedang login; AGENT_DEV_USER_ID hanya override untuk pengujian lokal.
+  const userId = AGENT_DEV_USER_ID || body.userId?.trim() || "";
+  if (!UUID_PATTERN.test(userId)) {
     return error(
-      "AGENT_DEV_USER_ID env var is not set (dev auth seam requires a UUID).",
-      500,
+      "Sesi pengguna tidak ditemukan. Silakan login ulang sebelum memakai asisten.",
+      401,
     );
   }
 
@@ -59,7 +67,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-User-Id": AGENT_DEV_USER_ID,
+        "X-User-Id": userId,
       },
       body: JSON.stringify({ question, history }),
     });

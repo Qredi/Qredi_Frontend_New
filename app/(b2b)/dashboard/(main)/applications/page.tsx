@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useSyncExternalStore } from "react";
 import { MagnifyingGlass, Funnel, Rows } from "@phosphor-icons/react";
 import ApplicationsTable from "@/components/b2b/tables/ApplicationsTable";
-import { apiFetch } from "@/lib/api";
-import type { UserOut, ScoreOut } from "@/lib/types";
+import { applicationsStore } from "@/lib/applications-store";
 import {
+  enrichWithFraudRisk,
+  loadBackendApplications,
+  loadMerchantPipeline,
+  localApplicationToRow,
+  mergeApplications,
   type Application,
-  riskToCap,
 } from "@/lib/applications";
 
 export default function ApplicationsPage() {
@@ -15,44 +18,32 @@ export default function ApplicationsPage() {
   const [riskFilter, setRiskFilter] = useState<string>("All");
   const [fraudFilter, setFraudFilter] = useState<string>("All");
   const [scoreFilter, setScoreFilter] = useState<string>("All");
-  const [applications, setApplications] = useState<Application[]>([]);
+  const [pipeline, setPipeline] = useState<Application[]>([]);
+  const [backendApplications, setBackendApplications] = useState<Application[]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
+
+  const localApplications = useSyncExternalStore(
+    applicationsStore.subscribe,
+    applicationsStore.getSnapshot,
+    applicationsStore.getServerSnapshot,
+  );
 
   useEffect(() => {
     async function load() {
       try {
-        const users = await apiFetch<UserOut[]>("/users/?role=umkm&limit=50");
-        const apps: Application[] = await Promise.all(
-          users.slice(0, 50).map(async (u) => {
-            let score: ScoreOut | null = null;
-            try {
-              score = await apiFetch<ScoreOut>(
-                `/scores/by-user/${u.id}/latest`,
-              );
-            } catch {
-              // no score
-            }
+        const [merchants, applications] = await Promise.all([
+          loadMerchantPipeline(),
+          loadBackendApplications(),
+        ]);
+        setPipeline(merchants);
+        setBackendApplications(applications);
+        setLoading(false);
 
-            const displayScore = score ? score.acs_score : 0;
-
-            return {
-              id: u.id,
-              merchantName: u.full_name,
-              businessType: "UMKM",
-              creditScore: displayScore,
-              riskLevel: riskToCap(score?.risk_level ?? "medium"),
-              fraudRisk: "Low" as const,
-              requestedAmount: "Rp 50.000.000",
-              submittedAt: "",
-              userId: u.id,
-              profile: null,
-              score,
-            };
-          }),
-        );
-        setApplications(apps);
-      } catch {
-        // keep empty
+        // Pass kedua: Fraud Risk butuh satu request transaksi per merchant,
+        // jadi tabel ditampilkan dulu baru badge-nya menyusul.
+        setPipeline(await enrichWithFraudRisk(merchants));
       } finally {
         setLoading(false);
       }
@@ -60,12 +51,27 @@ export default function ApplicationsPage() {
     load();
   }, []);
 
+  const applications = useMemo(() => {
+    const backendIds = new Set(backendApplications.map((a) => a.id));
+    const local = localApplications
+      .filter((a) => !backendIds.has(a.id))
+      .map(localApplicationToRow);
+    return [...backendApplications, ...local];
+  }, [backendApplications, localApplications]);
+
+  const rows = useMemo(
+    () => mergeApplications(pipeline, applications),
+    [pipeline, applications],
+  );
+
   const filteredApplications = useMemo(() => {
-    return applications.filter((item) => {
+    const query = searchQuery.toLowerCase();
+
+    return rows.filter((item) => {
       const matchesSearch =
-        item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.merchantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.businessType.toLowerCase().includes(searchQuery.toLowerCase());
+        item.id.toLowerCase().includes(query) ||
+        item.merchantName.toLowerCase().includes(query) ||
+        item.businessType.toLowerCase().includes(query);
 
       const matchesRisk = riskFilter === "All" || item.riskLevel === riskFilter;
 
@@ -84,7 +90,7 @@ export default function ApplicationsPage() {
 
       return matchesSearch && matchesRisk && matchesFraud && matchesScore;
     });
-  }, [applications, searchQuery, riskFilter, fraudFilter, scoreFilter]);
+  }, [rows, searchQuery, riskFilter, fraudFilter, scoreFilter]);
 
   return (
     <div className="p-5">

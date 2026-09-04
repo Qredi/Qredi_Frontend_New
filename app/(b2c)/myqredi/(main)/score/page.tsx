@@ -7,36 +7,29 @@ import ScoreGauge from "@/components/b2c/score/ScoreGauge";
 import ScoreTrend from "@/components/b2c/score/ScoreTrend";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { apiFetch } from "@/lib/api";
-import type {
-  UMKMProfileOut,
-  ScoreOut,
-} from "@/lib/types";
+import {
+  buildInsight,
+  buildScoreKpis,
+  buildScoreTrend,
+  findOldestTransactionTime,
+  formatScoreDate,
+  getRiskCategory,
+  monthsBetween,
+  TREND_POINTS,
+  type ScoreKpi,
+  type ScoreTrend as ScoreTrendData,
+} from "@/lib/scores";
+import type { QrisTransactionOut, UMKMProfileOut, ScoreOut } from "@/lib/types";
 
-interface ScoreHistoryItem {
-  month: string;
-  score: number;
-}
+const EMPTY_TREND: ScoreTrendData = {
+  points: [],
+  diff: 0,
+  hasDates: false,
+  isFlat: true,
+};
 
-const MONTH_NAMES = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "Mei",
-  "Jun",
-  "Jul",
-  "Agu",
-  "Sep",
-  "Okt",
-  "Nov",
-  "Des",
-];
-
-function getRiskCategory(score: number): string {
-  if (score >= 70) return "Baik";
-  if (score >= 50) return "Sedang";
-  return "Rendah";
-}
+/** Cukup untuk menghitung aktivitas & konsistensi terkini tanpa payload besar. */
+const ACTIVITY_WINDOW = 1000;
 
 export default function ScorePage() {
   const { user } = useAuth();
@@ -44,47 +37,55 @@ export default function ScorePage() {
   const [score, setScore] = useState<number | null>(null);
   const [riskCategory, setRiskCategory] = useState<string>("");
   const [lastUpdated, setLastUpdated] = useState<string>("");
-  const [trends, setTrends] = useState<ScoreHistoryItem[]>([]);
+  const [trend, setTrend] = useState<ScoreTrendData>(EMPTY_TREND);
   const [insight, setInsight] = useState<string>("");
+  const [kpis, setKpis] = useState<ScoreKpi[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const [profile, latestScore, history] = await Promise.all([
-          apiFetch<UMKMProfileOut>("/umkm-profiles/me"),
+        const [profile, latestScore, history, transactions] = await Promise.all([
+          apiFetch<UMKMProfileOut>("/umkm-profiles/me").catch(() => null),
           apiFetch<ScoreOut>("/scores/me/latest"),
-          apiFetch<ScoreOut[]>("/scores/me/history?limit=5"),
+          apiFetch<ScoreOut[]>(
+            `/scores/me/history?limit=${TREND_POINTS}`,
+          ).catch(() => [] as ScoreOut[]),
+          apiFetch<QrisTransactionOut[]>(
+            `/qris-transactions/me?limit=${ACTIVITY_WINDOW}`,
+          ).catch(() => [] as QrisTransactionOut[]),
         ]);
 
-        setBusinessName(profile.business_name ?? "Usaha Anda");
+        setBusinessName(profile?.business_name ?? "Usaha Anda");
 
         const displayScore = Math.round(latestScore.acs_score);
         setScore(displayScore);
         setRiskCategory(getRiskCategory(displayScore));
+        setLastUpdated(formatScoreDate(latestScore.created_at));
 
-        const d = new Date(latestScore.created_at ?? Date.now());
-        setLastUpdated(
-          `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`,
-        );
+        // Riwayat mungkin belum memuat penilaian terbaru kalau limit-nya pas;
+        // pastikan skor terbaru selalu jadi titik terakhir grafik.
+        const series = history.some((s) => s.id === latestScore.id)
+          ? history
+          : [latestScore, ...history];
 
-        const mapped: ScoreHistoryItem[] = history
-          .slice()
-          .reverse()
-          .map((s) => ({
-            month: MONTH_NAMES[new Date(s.created_at).getMonth()],
-            score: Math.round(s.acs_score),
-          }));
-        setTrends(mapped);
+        const nextTrend = buildScoreTrend(series);
+        setTrend(nextTrend);
+        setInsight(buildInsight(displayScore, nextTrend));
 
-        const diff =
-          mapped.length >= 2
-            ? mapped[mapped.length - 1].score - mapped[0].score
-            : 0;
-        setInsight(
-          diff >= 0
-            ? `Skor Anda berada dalam kategori ${getRiskCategory(displayScore)}. Konsistensi transaksi harian dan pertumbuhan omzet yang stabil menjadi faktor pendorong utama kredit Anda bulan ini.`
-            : `Skor Anda perlu perhatian. Cobalah menjaga konsistensi transaksi untuk meningkatkan profil kredit Anda.`,
+        // KPI tampil lebih dulu dengan data yang sudah ada; periode QRIS
+        // menyusul karena butuh probe transaksi tertua.
+        setKpis(buildScoreKpis(transactions, latestScore.risk_level, null));
+        setLoading(false);
+
+        const newest = transactions[0]?.transaction_time;
+        const oldest = await findOldestTransactionTime(transactions);
+        setKpis(
+          buildScoreKpis(
+            transactions,
+            latestScore.risk_level,
+            oldest && newest ? monthsBetween(oldest, newest) : null,
+          ),
         );
       } catch {
         // fallback to safe defaults
@@ -94,11 +95,6 @@ export default function ScorePage() {
     }
     load();
   }, []);
-
-  const diffPoin =
-    trends.length >= 2
-      ? trends[trends.length - 1].score - trends[0].score
-      : 0;
 
   if (loading) {
     return (
@@ -141,6 +137,25 @@ export default function ScorePage() {
         </div>
       </div>
 
+      {/* 4 KPI Cards */}
+      <div className="grid grid-cols-2 rounded-lg border border-border bg-surface shadow-sm divide-x divide-y divide-border overflow-hidden">
+        {kpis.map((kpi) => (
+          <div key={kpi.id} className="p-3.5 flex flex-col gap-1.5 min-w-0">
+            {/* Label */}
+            <span className="text-sm font-medium text-muted truncate">
+              {kpi.label}
+            </span>
+
+            {/* Value */}
+            <p
+              className={`text-base font-bold tracking-tight truncate ${kpi.valueColor}`}
+            >
+              {kpi.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
       {/* Button Lihat Detail Skor */}
       <Link
         href="/myqredi/score/detail"
@@ -163,10 +178,10 @@ export default function ScorePage() {
       </div>
 
       {/* Perkembangan Skor */}
-      {trends.length > 0 && (
+      {trend.points.length > 1 && (
         <ScoreTrend
-          scoreTrends={trends}
-          diffPoin={`${diffPoin >= 0 ? "+" : ""}${diffPoin} Poin`}
+          scoreTrends={trend.points}
+          diffPoin={`${trend.diff >= 0 ? "+" : ""}${trend.diff} Poin`}
         />
       )}
     </div>

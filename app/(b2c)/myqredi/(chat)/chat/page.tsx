@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useAuth } from "@/components/providers/AuthProvider";
 import ChatBubble from "@/components/b2c/chat/ChatBubble";
 import ChatInput from "@/components/b2c/chat/ChatInput";
 import { chatHistory, type Message } from "@/lib/chat-history";
@@ -10,6 +11,7 @@ import { chatHistory, type Message } from "@/lib/chat-history";
 const HISTORY_MAX_TURNS = 10;
 
 export default function ChatbotPage() {
+  const { user } = useAuth();
   const messages = useSyncExternalStore(
     chatHistory.subscribe,
     chatHistory.getSnapshot,
@@ -34,7 +36,7 @@ export default function ChatbotPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: message, history }),
+        body: JSON.stringify({ question: message, history, userId: user?.id }),
       });
 
       if (!res.ok) {

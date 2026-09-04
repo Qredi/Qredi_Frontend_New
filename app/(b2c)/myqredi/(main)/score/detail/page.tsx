@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Sparkle } from "@phosphor-icons/react";
 import ScoreGauge from "@/components/b2c/score/ScoreGauge";
-import { useAuth } from "@/components/providers/AuthProvider";
 import { apiFetch } from "@/lib/api";
-import type { ScoreOut } from "@/lib/types";
+import { formatScoreDate, getRiskCategory } from "@/lib/scores";
+import type { LoanOutcomeOut, QrisTransactionOut, ScoreOut } from "@/lib/types";
 
 interface ScoreFactor {
   label: string;
@@ -16,72 +16,234 @@ interface ScoreFactor {
   barColor: string;
 }
 
-const MONTH_NAMES = [
-  "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
-  "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
-];
+/** Ambang yang sama dipakai untuk semua faktor agar warnanya konsisten. */
+function gradeFactor(
+  label: string,
+  percentage: number,
+  labels: [string, string, string] = ["Baik", "Sedang", "Rendah"],
+): ScoreFactor {
+  const clamped = Math.min(Math.max(Math.round(percentage), 0), 100);
 
-const DEFAULT_FACTORS: ScoreFactor[] = [
+  if (clamped >= 70) {
+    return {
+      label,
+      value: labels[0],
+      percentage: clamped,
+      valueColor: "text-emerald-600",
+      barColor: "bg-emerald-500",
+    };
+  }
+
+  if (clamped >= 45) {
+    return {
+      label,
+      value: labels[1],
+      percentage: clamped,
+      valueColor: "text-amber-600",
+      barColor: "bg-amber-500",
+    };
+  }
+
+  return {
+    label,
+    value: labels[2],
+    percentage: clamped,
+    valueColor: "text-rose-600",
+    barColor: "bg-rose-500",
+  };
+}
+
+const PENDING_FACTORS: ScoreFactor[] = [
   {
     label: "Konsistensi Transaksi",
-    value: "Baik",
-    percentage: 75,
-    valueColor: "text-emerald-600",
-    barColor: "bg-emerald-500",
+    value: "Belum Ada Data",
+    percentage: 0,
+    valueColor: "text-muted",
+    barColor: "bg-slate-300",
   },
   {
     label: "Stabilitas Omzet",
-    value: "Sedang",
-    percentage: 55,
-    valueColor: "text-amber-600",
-    barColor: "bg-amber-500",
+    value: "Belum Ada Data",
+    percentage: 0,
+    valueColor: "text-muted",
+    barColor: "bg-slate-300",
   },
   {
     label: "Riwayat Pembayaran",
-    value: "Baik",
-    percentage: 80,
-    valueColor: "text-emerald-600",
-    barColor: "bg-emerald-500",
+    value: "Belum Ada Data",
+    percentage: 0,
+    valueColor: "text-muted",
+    barColor: "bg-slate-300",
   },
 ];
 
-function getRiskCategory(score: number): string {
-  if (score >= 70) return "Baik";
-  if (score >= 50) return "Sedang";
-  return "Rendah";
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WINDOW_DAYS = 90;
+
+/** Berapa persen hari dalam rentang pengamatan yang punya transaksi. */
+function consistencyPercentage(transactions: QrisTransactionOut[]): number {
+  if (transactions.length === 0) return 0;
+
+  const times = transactions
+    .map((t) => new Date(t.transaction_time).getTime())
+    .filter((t) => !Number.isNaN(t));
+  if (times.length === 0) return 0;
+
+  const latest = Math.max(...times);
+  const earliest = Math.min(...times);
+  const spanDays = Math.min(
+    Math.max(Math.ceil((latest - earliest) / DAY_MS) + 1, 1),
+    WINDOW_DAYS,
+  );
+  const windowStart = latest - (spanDays - 1) * DAY_MS;
+
+  const activeDays = new Set(
+    times
+      .filter((t) => t >= windowStart)
+      .map((t) => Math.floor((t - windowStart) / DAY_MS)),
+  );
+
+  return (activeDays.size / spanDays) * 100;
+}
+
+/**
+ * Stabilitas omzet mingguan: makin kecil sebaran omzet antar minggu, makin
+ * tinggi nilainya. Dihitung dari koefisien variasi (stdev / rata-rata).
+ */
+function revenueStabilityPercentage(
+  transactions: QrisTransactionOut[],
+): number {
+  const income = transactions.filter((t) => !t.is_refund);
+  if (income.length === 0) return 0;
+
+  const times = income
+    .map((t) => new Date(t.transaction_time).getTime())
+    .filter((t) => !Number.isNaN(t));
+  if (times.length === 0) return 0;
+
+  const latest = Math.max(...times);
+  const weekly = new Map<number, number>();
+
+  for (const t of income) {
+    const time = new Date(t.transaction_time).getTime();
+    if (Number.isNaN(time)) continue;
+    const week = Math.floor((latest - time) / (7 * DAY_MS));
+    weekly.set(week, (weekly.get(week) ?? 0) + t.amount);
+  }
+
+  const totals = [...weekly.values()];
+  if (totals.length < 2) return 50;
+
+  const mean = totals.reduce((a, b) => a + b, 0) / totals.length;
+  if (mean <= 0) return 0;
+
+  const variance =
+    totals.reduce((acc, v) => acc + (v - mean) ** 2, 0) / totals.length;
+  const coefficientOfVariation = Math.sqrt(variance) / mean;
+
+  return Math.max(0, 100 - coefficientOfVariation * 100);
+}
+
+function repaymentFactor(loans: LoanOutcomeOut[]): ScoreFactor {
+  if (loans.length === 0) {
+    return {
+      label: "Riwayat Pembayaran",
+      value: "Belum Ada",
+      percentage: 50,
+      valueColor: "text-muted",
+      barColor: "bg-slate-300",
+    };
+  }
+
+  const defaulted = loans.filter((l) => l.status === "defaulted").length;
+  const overdue = loans.filter((l) => l.status === "overdue").length;
+  const paid = loans.filter((l) => l.status === "paid");
+  const paidOnTime = paid.filter((l) => (l.days_past_due ?? 0) === 0).length;
+
+  const settled = paid.length + overdue + defaulted;
+  if (settled === 0) {
+    return {
+      label: "Riwayat Pembayaran",
+      value: "Berjalan",
+      percentage: 60,
+      valueColor: "text-amber-600",
+      barColor: "bg-amber-500",
+    };
+  }
+
+  // Lunas tepat waktu bernilai penuh, lunas terlambat separuh, macet nol.
+  const lateButPaid = paid.length - paidOnTime;
+  const percentage =
+    ((paidOnTime + lateButPaid * 0.5) / settled) * 100;
+
+  return gradeFactor("Riwayat Pembayaran", percentage);
 }
 
 export default function ScoreDetailPage() {
-  const { user } = useAuth();
   const [score, setScore] = useState<number>(0);
   const [riskCategory, setRiskCategory] = useState<string>("");
   const [lastUpdated, setLastUpdated] = useState<string>("");
-  const [factors, setFactors] = useState<ScoreFactor[]>(DEFAULT_FACTORS);
+  const [factors, setFactors] = useState<ScoreFactor[]>(PENDING_FACTORS);
+  const [insight, setInsight] = useState<string>(
+    "Konsistensi transaksi dan stabilitas omzet menjadi faktor utama yang mendukung skor Anda saat ini.",
+  );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
-
     async function load() {
       try {
-        const latestScore = await apiFetch<ScoreOut>("/scores/me/latest");
+        const [latestScore, transactions, loans] = await Promise.all([
+          apiFetch<ScoreOut>("/scores/me/latest"),
+          apiFetch<QrisTransactionOut[]>(
+            "/qris-transactions/me?limit=1000",
+          ).catch(() => [] as QrisTransactionOut[]),
+          apiFetch<LoanOutcomeOut[]>("/loans/by-borrower/me").catch(
+            () => [] as LoanOutcomeOut[],
+          ),
+        ]);
 
         const displayScore = Math.round(latestScore.acs_score);
         setScore(displayScore);
         setRiskCategory(getRiskCategory(displayScore));
+        setLastUpdated(formatScoreDate(latestScore.created_at));
 
-        const d = new Date(latestScore.created_at ?? Date.now());
-        setLastUpdated(
-          `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`,
+        if (transactions.length === 0) {
+          setFactors([PENDING_FACTORS[0], PENDING_FACTORS[1], repaymentFactor(loans)]);
+          return;
+        }
+
+        const consistency = gradeFactor(
+          "Konsistensi Transaksi",
+          consistencyPercentage(transactions),
+        );
+        const stability = gradeFactor(
+          "Stabilitas Omzet",
+          revenueStabilityPercentage(transactions),
+        );
+        const repayment = repaymentFactor(loans);
+
+        setFactors([consistency, stability, repayment]);
+
+        const strongest = [consistency, stability, repayment].reduce((a, b) =>
+          b.percentage > a.percentage ? b : a,
+        );
+        const weakest = [consistency, stability, repayment].reduce((a, b) =>
+          b.percentage < a.percentage ? b : a,
+        );
+
+        setInsight(
+          strongest.label === weakest.label
+            ? `Skor Anda ditopang oleh ${strongest.label.toLowerCase()} dari ${transactions.length.toLocaleString("id-ID")} transaksi QRIS terakhir.`
+            : `${strongest.label} menjadi faktor terkuat Anda, sementara ${weakest.label.toLowerCase()} masih paling bisa ditingkatkan. Dihitung dari ${transactions.length.toLocaleString("id-ID")} transaksi QRIS terakhir.`,
         );
       } catch {
-        setFactors(DEFAULT_FACTORS);
+        setFactors(PENDING_FACTORS);
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, [user]);
+  }, []);
 
   if (loading) {
     return (
@@ -171,8 +333,7 @@ export default function ScoreDetailPage() {
         </div>
 
         <p className="mt-2 text-sm leading-relaxed text-foreground/80">
-          Konsistensi transaksi dan stabilitas omzet menjadi faktor utama yang
-          mendukung skor Anda saat ini.
+          {insight}
         </p>
       </div>
     </div>

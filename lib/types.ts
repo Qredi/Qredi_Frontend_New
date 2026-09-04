@@ -62,7 +62,13 @@ export interface ScoreOut {
   confidence_score: number | null;
   prediction_label: string | null;
   model_version: string | null;
-  created_at: string;
+  /**
+   * Tidak dikirim oleh `ScoreOut` di backend saat ini (kolom `created_at` ada
+   * di tabel `scores` tapi tidak diekspos di schema). Ditandai opsional supaya
+   * pemakaiannya di FE wajib lewat pengecekan, bukan menghasilkan
+   * `new Date(undefined)` -> Invalid Date.
+   */
+  created_at?: string;
 }
 
 export interface MatchOut {

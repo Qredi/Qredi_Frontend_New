@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   ClipboardText,
   ChartLineUp,
@@ -16,35 +16,15 @@ import KpiCard from "@/components/b2b/ui/KpiCard";
 import ApplicationTrend from "@/components/b2b/charts/ApplicationTrend";
 import ScoreDistribution from "@/components/b2b/charts/ScoreDistribution";
 import ApplicationsTable from "@/components/b2b/tables/ApplicationsTable";
-import { apiFetch } from "@/lib/api";
-import type { UserOut, ScoreOut } from "@/lib/types";
+import { applicationsStore } from "@/lib/applications-store";
 import {
+  enrichWithFraudRisk,
+  loadBackendApplications,
+  loadMerchantPipeline,
+  localApplicationToRow,
+  mergeApplications,
   type Application,
-  riskToCap,
 } from "@/lib/applications";
-
-const kpis = [
-  {
-    label: "Total Applications",
-    value: "1,284",
-    icon: ClipboardText,
-  },
-  {
-    label: "Average Score",
-    value: "76.4",
-    icon: ChartLineUp,
-  },
-  {
-    label: "High Risk",
-    value: "124",
-    icon: Warning,
-  },
-  {
-    label: "Scored This Month",
-    value: "342",
-    icon: CheckCircle,
-  },
-];
 
 const MONTH_NAMES = [
   "Jan",
@@ -74,61 +54,111 @@ function getDistributionBuckets(apps: Application[]): number[] {
   return buckets;
 }
 
-function getMonthlyTrend(apps: Application[]): { labels: string[]; data: number[] } {
-  const monthCounts = new Map<number, number>();
+/**
+ * Tren pengajuan per bulan.
+ *
+ * Memakai `submittedAt` dari pengajuan — `ScoreOut` maupun `MatchOut` di
+ * backend tidak mengirim timestamp, jadi skor tidak bisa dipakai sebagai
+ * sumbu waktu.
+ */
+function getMonthlyTrend(apps: Application[]): {
+  labels: string[];
+  data: number[];
+} {
+  const monthCounts = new Map<string, number>();
+
   for (const app of apps) {
-    if (!app.score?.created_at) continue;
-    const month = new Date(app.score.created_at).getMonth();
-    monthCounts.set(month, (monthCounts.get(month) ?? 0) + 1);
+    if (!app.submittedAt) continue;
+    const d = new Date(app.submittedAt);
+    if (Number.isNaN(d.getTime())) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
+    monthCounts.set(key, (monthCounts.get(key) ?? 0) + 1);
   }
-  const sortedMonths = [...monthCounts.keys()].sort((a, b) => a - b);
-  const labels = sortedMonths.map((m) => MONTH_NAMES[m]);
-  const data = sortedMonths.map((m) => monthCounts.get(m) ?? 0);
-  return { labels, data };
+
+  const sortedKeys = [...monthCounts.keys()].sort();
+  return {
+    labels: sortedKeys.map((k) => MONTH_NAMES[Number(k.split("-")[1])]),
+    data: sortedKeys.map((k) => monthCounts.get(k) ?? 0),
+  };
 }
 
 export default function DashboardPage() {
-  const [applications, setApplications] = useState<Application[]>([]);
+  const [pipeline, setPipeline] = useState<Application[]>([]);
+  const [backendApplications, setBackendApplications] = useState<Application[]>(
+    [],
+  );
+
+  const localApplications = useSyncExternalStore(
+    applicationsStore.subscribe,
+    applicationsStore.getSnapshot,
+    applicationsStore.getServerSnapshot,
+  );
 
   useEffect(() => {
     async function load() {
-      try {
-        const users = await apiFetch<UserOut[]>("/users/?role=umkm&limit=50");
-        const apps: Application[] = await Promise.all(
-          users.slice(0, 20).map(async (u) => {
-            let score: ScoreOut | null = null;
-            try {
-              score = await apiFetch<ScoreOut>(
-                `/scores/by-user/${u.id}/latest`,
-              );
-            } catch {
-              // no score
-            }
+      const [merchants, applications] = await Promise.all([
+        loadMerchantPipeline(),
+        loadBackendApplications(),
+      ]);
+      setPipeline(merchants);
+      setBackendApplications(applications);
 
-            const displayScore = score ? score.acs_score : 0;
-
-            return {
-              id: u.id,
-              merchantName: u.full_name,
-              businessType: "UMKM",
-              creditScore: displayScore,
-              riskLevel: riskToCap(score?.risk_level ?? "medium"),
-              fraudRisk: "Low" as const,
-              requestedAmount: "Rp 50.000.000",
-              submittedAt: "",
-              userId: u.id,
-              profile: null,
-              score,
-            };
-          }),
-        );
-        setApplications(apps);
-      } catch {
-        // keep empty
-      }
+      // Pass kedua: Fraud Risk butuh satu request transaksi per merchant.
+      setPipeline(await enrichWithFraudRisk(merchants));
     }
     load();
   }, []);
+
+  const applications = useMemo(() => {
+    const backendIds = new Set(backendApplications.map((a) => a.id));
+    const local = localApplications
+      .filter((a) => !backendIds.has(a.id))
+      .map(localApplicationToRow);
+    return [...backendApplications, ...local];
+  }, [backendApplications, localApplications]);
+
+  const rows = useMemo(
+    () => mergeApplications(pipeline, applications),
+    [pipeline, applications],
+  );
+
+  const kpis = useMemo(() => {
+    const scored = pipeline.filter((a) => a.score != null || a.creditScore > 0);
+    const averageScore =
+      scored.length > 0
+        ? scored.reduce((sum, a) => sum + a.creditScore, 0) / scored.length
+        : 0;
+    const highRisk = scored.filter((a) => a.riskLevel === "High").length;
+
+    return [
+      {
+        label: "Total Applications",
+        value: applications.length.toLocaleString("en-US"),
+        icon: ClipboardText,
+      },
+      {
+        label: "Average Score",
+        value: averageScore ? averageScore.toFixed(1) : "-",
+        icon: ChartLineUp,
+      },
+      {
+        label: "High Risk",
+        value: highRisk.toLocaleString("en-US"),
+        icon: Warning,
+      },
+      {
+        label: "Merchants Scored",
+        value: scored.length.toLocaleString("en-US"),
+        icon: CheckCircle,
+      },
+    ];
+  }, [pipeline, applications]);
+
+  const trend = useMemo(() => getMonthlyTrend(applications), [applications]);
+  const buckets = useMemo(
+    () => getDistributionBuckets(pipeline.filter((a) => a.creditScore > 0)),
+    [pipeline],
+  );
 
   return (
     <div className="p-5">
@@ -158,11 +188,8 @@ export default function DashboardPage() {
 
       {/* Charts */}
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <ApplicationTrend
-          labels={getMonthlyTrend(applications).labels}
-          data={getMonthlyTrend(applications).data}
-        />
-        <ScoreDistribution counts={getDistributionBuckets(applications)} />
+        <ApplicationTrend labels={trend.labels} data={trend.data} />
+        <ScoreDistribution counts={buckets} />
       </div>
 
       {/* Recent Applications Table */}
@@ -188,7 +215,7 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <ApplicationsTable data={applications} limit={5} />
+        <ApplicationsTable data={rows} limit={5} />
       </div>
     </div>
   );

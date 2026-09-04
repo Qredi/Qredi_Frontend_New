@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -14,6 +21,7 @@ import {
   Clock,
 } from "@phosphor-icons/react";
 import { apiFetch } from "@/lib/api";
+import { applicationsStore } from "@/lib/applications-store";
 import type {
   UserOut,
   ScoreOut,
@@ -21,77 +29,126 @@ import type {
   QrisTransactionOut,
   ACSScoreResponse,
 } from "@/lib/types";
-import { riskToCap } from "@/lib/applications";
+import {
+  fraudFlagToRisk,
+  loadProfileForUser,
+  riskToCap,
+} from "@/lib/applications";
+import { formatScoreDate } from "@/lib/scores";
+
+type TabKey = "overview" | "score" | "fraud" | "business";
 
 export default function ApplicationDetailPage() {
   const params = useParams();
   const userId = params?.id as string;
 
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "score" | "fraud" | "business"
-  >("overview");
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
 
   const [user, setUser] = useState<UserOut | null>(null);
   const [score, setScore] = useState<ScoreOut | null>(null);
   const [profile, setProfile] = useState<UMKMProfileOut | null>(null);
   const [transactions, setTransactions] = useState<QrisTransactionOut[]>([]);
   const [acsData, setAcsData] = useState<ACSScoreResponse | null>(null);
+  const [acsState, setAcsState] = useState<"idle" | "loading" | "done">("idle");
+  const acsRequested = useRef(false);
   const [loading, setLoading] = useState(true);
+
+  const allApplications = useSyncExternalStore(
+    applicationsStore.subscribe,
+    applicationsStore.getSnapshot,
+    applicationsStore.getServerSnapshot,
+  );
+
+  const application = useMemo(
+    () => allApplications.find((a) => a.umkmId === userId),
+    [allApplications, userId],
+  );
 
   useEffect(() => {
     if (!userId) return;
 
     async function load() {
-      try {
-        const [u, s, p, txns] = await Promise.all([
-          apiFetch<UserOut>(`/users/${userId}`),
-          apiFetch<ScoreOut>(`/scores/by-user/${userId}/latest`).catch(
-            () => null,
-          ),
-          apiFetch<UMKMProfileOut>(
-            `/umkm-profiles/by-user/${userId}`,
-          ).catch(() => null),
-          apiFetch<QrisTransactionOut[]>(
-            `/qris-transactions/by-user/${userId}?limit=100`,
-          ).catch(() => []),
-        ]);
+      // Setiap request ditangkap sendiri-sendiri: `GET /users/{id}` dan
+      // `GET /umkm-profiles/by-user/{id}` hanya untuk admin, jadi kalau login
+      // sebagai lender satu penolakan tidak boleh menggagalkan seluruh halaman.
+      const [u, s, p, txns] = await Promise.all([
+        apiFetch<UserOut>(`/users/${userId}`).catch(() => null),
+        apiFetch<ScoreOut>(`/scores/by-user/${userId}/latest`).catch(
+          () => null,
+        ),
+        loadProfileForUser(userId),
+        apiFetch<QrisTransactionOut[]>(
+          `/qris-transactions/by-user/${userId}?limit=500`,
+        ).catch(() => [] as QrisTransactionOut[]),
+      ]);
 
-        setUser(u);
-        setScore(s);
-        setProfile(p);
-        setTransactions(txns);
-
-        const acs = await apiFetch<ACSScoreResponse>(
-          `/acs-scores/${userId}/score?technical_scope=true`,
-          { method: "POST" },
-        ).catch(() => null);
-        setAcsData(acs);
-      } catch {
-        // handle error
-      } finally {
-        setLoading(false);
-      }
+      setUser(u);
+      setScore(s);
+      setProfile(p);
+      setTransactions(txns);
+      setLoading(false);
     }
     load();
+  }, [userId]);
+
+  /**
+   * `POST /acs-scores/{id}/score` menjalankan ulang ACS engine dan menulis
+   * baris baru di tabel `scores`. Karena itu panggilannya baru dilakukan saat
+   * tab "Score Analysis" dibuka, dan hanya sekali per kunjungan — sebelumnya
+   * dipanggil di setiap page load sehingga riwayat skor UMKM terisi duplikat
+   * dan terlihat stagnan.
+   */
+  const runAcsAnalysis = useCallback(() => {
+    if (acsRequested.current || !userId) return;
+    acsRequested.current = true;
+
+    setAcsState("loading");
+    apiFetch<ACSScoreResponse>(
+      `/acs-scores/${userId}/score?technical_scope=true`,
+      { method: "POST" },
+    )
+      .then((data) => setAcsData(data))
+      .catch(() => setAcsData(null))
+      .finally(() => setAcsState("done"));
   }, [userId]);
 
   const displayScore = score ? Math.round(score.acs_score) : 0;
   const riskLevel = score ? riskToCap(score.risk_level) : "Medium";
   const fraudFlags = transactions.filter((t) => t.fraud_flag).length;
+  const fraudRisk = fraudFlagToRisk(fraudFlags);
   const totalTx = transactions.length;
   const avgValue =
     totalTx > 0
       ? Math.round(transactions.reduce((s, t) => s + t.amount, 0) / totalTx)
       : 0;
-  const monthlyVolume = transactions
-    .filter((t) => {
-      const d = new Date(t.transaction_time);
-      const now = new Date();
-      return (
-        d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-      );
-    })
-    .reduce((s, t) => s + t.amount, 0);
+
+  // Volume bulan kalender terakhir yang benar-benar punya transaksi — data
+  // seed bisa berakhir di bulan lalu, sehingga "bulan berjalan" akan 0.
+  const monthlyVolume = useMemo(() => {
+    if (transactions.length === 0) return 0;
+
+    const times = transactions
+      .map((t) => new Date(t.transaction_time))
+      .filter((d) => !Number.isNaN(d.getTime()));
+    if (times.length === 0) return 0;
+
+    const latest = times.reduce((a, b) => (b > a ? b : a));
+    return transactions
+      .filter((t) => {
+        const d = new Date(t.transaction_time);
+        return (
+          d.getMonth() === latest.getMonth() &&
+          d.getFullYear() === latest.getFullYear()
+        );
+      })
+      .reduce((s, t) => s + t.amount, 0);
+  }, [transactions]);
+
+  const merchantName =
+    profile?.business_name ??
+    application?.businessName ??
+    user?.full_name ??
+    "Unknown";
 
   const getRiskBadge = (level: string) => {
     switch (level) {
@@ -146,16 +203,20 @@ export default function ApplicationDetailPage() {
               </span>
             </div>
             <h1 className="mt-1 text-2xl font-semibold text-foreground py-2">
-              {user?.full_name ?? "Unknown"}
+              {merchantName}
             </h1>
             <div className="mt-1 flex items-center gap-4 text-sm text-muted">
               <span>{profile?.business_type ?? "UMKM"}</span>
               <span>&#8226;</span>
               <span className="flex items-center gap-1">
                 <Clock size={14} />
-                {score?.created_at
-                  ? `Scored ${new Date(score.created_at).toLocaleDateString("id-ID")}`
-                  : "Not yet scored"}
+                {application
+                  ? `Applied ${new Date(application.submittedAt).toLocaleDateString("id-ID")}`
+                  : score?.created_at
+                    ? `Scored ${formatScoreDate(score.created_at)}`
+                    : score
+                      ? "Scored"
+                      : "Not yet scored"}
               </span>
             </div>
           </div>
@@ -199,7 +260,10 @@ export default function ApplicationDetailPage() {
           ).map(([key, label, Icon]) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key)}
+              onClick={() => {
+                setActiveTab(key);
+                if (key === "score") runAcsAnalysis();
+              }}
               className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
                 activeTab === key
                   ? "border-primary bg-primary/5 text-primary"
@@ -225,7 +289,7 @@ export default function ApplicationDetailPage() {
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-muted">Business Name</span>
                 <span className="font-medium text-foreground">
-                  {profile?.business_name ?? user?.full_name ?? "-"}
+                  {merchantName}
                 </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
@@ -253,30 +317,62 @@ export default function ApplicationDetailPage() {
             </div>
           </div>
 
-          {/* Transaction Summary */}
+          {/* Loan Request / Transaction Summary */}
           <div className="border border-border bg-surface p-6 shadow-sm">
             <h3 className="text-lg font-semibold text-foreground mb-4 border-b border-border pb-3">
-              Transaction Summary (QRIS)
+              {application ? "Loan Request" : "Transaction Summary (QRIS)"}
             </h3>
             <div className="space-y-4 text-base">
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-muted">Total Transactions</span>
-                <span className="font-medium text-foreground">
-                  {totalTx.toLocaleString()}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-muted">Avg. Transaction Value</span>
-                <span className="font-medium text-foreground">
-                  Rp {avgValue.toLocaleString("id-ID")}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-muted">Monthly Volume</span>
-                <span className="font-medium text-foreground">
-                  Rp {monthlyVolume.toLocaleString("id-ID")}
-                </span>
-              </div>
+              {application ? (
+                <>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Product</span>
+                    <span className="font-medium text-foreground">
+                      {application.productTitle}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Requested Amount</span>
+                    <span className="font-medium text-foreground">
+                      Rp {application.requestedAmount.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Tenor</span>
+                    <span className="font-medium text-foreground">
+                      {application.tenorMonths} months &#183;{" "}
+                      {application.interestRate}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted">Match Score</span>
+                    <span className="font-medium text-foreground">
+                      {application.matchScore}%
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Total Transactions</span>
+                    <span className="font-medium text-foreground">
+                      {totalTx.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Avg. Transaction Value</span>
+                    <span className="font-medium text-foreground">
+                      Rp {avgValue.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted">Monthly Volume</span>
+                    <span className="font-medium text-foreground">
+                      Rp {monthlyVolume.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -296,7 +392,11 @@ export default function ApplicationDetailPage() {
           </div>
 
           <div className="space-y-4">
-            {acsData?.technical_explanation?.top_drivers?.length ? (
+            {acsState === "loading" ? (
+              <div className="text-muted text-sm">
+                Running the scoring engine...
+              </div>
+            ) : acsData?.technical_explanation?.top_drivers?.length ? (
               acsData.technical_explanation.top_drivers.map((driver, idx) => {
                 const isPositive = driver.direction === "positive";
                 const impactVal = Math.round(
@@ -379,9 +479,9 @@ export default function ApplicationDetailPage() {
                 isAnomaly: fraudFlags > 0,
               },
               {
-                label: "Fraud Flag Count",
-                status: `${fraudFlags} flagged transactions`,
-                isAnomaly: fraudFlags > 0,
+                label: "Fraud Risk Level",
+                status: fraudRisk,
+                isAnomaly: fraudRisk !== "Low",
               },
               {
                 label: "Total Transactions",

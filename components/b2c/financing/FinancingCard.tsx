@@ -12,11 +12,23 @@ export interface FinancingItem {
   interest: string;
   matchScore: string;
   detailUrl: string;
+  /** Diisi hanya kalau UMKM sudah mengajukan produk ini. */
+  statusLabel?: string;
+  statusTone?: "pending" | "accepted" | "rejected";
 }
 
 interface FinancingCardProps {
   item: FinancingItem;
 }
+
+const STATUS_TONES: Record<
+  NonNullable<FinancingItem["statusTone"]>,
+  string
+> = {
+  pending: "text-amber-700 bg-amber-50 border-amber-200",
+  accepted: "text-emerald-700 bg-emerald-50 border-emerald-200",
+  rejected: "text-rose-700 bg-rose-50 border-rose-200",
+};
 
 export default function FinancingCard({ item }: FinancingCardProps) {
   return (
@@ -27,7 +39,7 @@ export default function FinancingCard({ item }: FinancingCardProps) {
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 font-bold text-base border border-emerald-100">
           {item.initial}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h3 className="text-base font-bold text-foreground truncate">
             {item.title}
           </h3>
@@ -35,6 +47,16 @@ export default function FinancingCard({ item }: FinancingCardProps) {
             {item.institution}
           </p>
         </div>
+
+        {item.statusLabel && (
+          <span
+            className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+              STATUS_TONES[item.statusTone ?? "pending"]
+            }`}
+          >
+            {item.statusLabel}
+          </span>
+        )}
       </div>
 
       {/* 2. Grid 3 Kolom (Plafon, Bunga, Kecocokan) */}
