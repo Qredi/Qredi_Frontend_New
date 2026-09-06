@@ -55,9 +55,9 @@ export default function Navbar() {
     >
       <nav>
         {/* Main Navbar */}
-        <div className="flex h-20 items-center justify-between px-24">
+        <div className="flex h-20 items-center justify-between px-4 sm:px-8 lg:px-24">
           {/* Left Side */}
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-3 sm:gap-5">
             {/* Menu Button */}
             <button
               type="button"
@@ -66,23 +66,23 @@ export default function Navbar() {
                 menuOpen ? "Close navigation menu" : "Open navigation menu"
               }
               aria-expanded={menuOpen}
-              className="flex h-11 w-11 items-center justify-center rounded-md text-foreground transition-colors hover:bg-slate-100 cursor-pointer"
+              className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-md text-foreground transition-colors hover:bg-slate-100 cursor-pointer"
             >
               {menuOpen ? (
-                <X size={28} weight="regular" />
+                <X size={26} weight="regular" />
               ) : (
-                <List size={28} weight="regular" />
+                <List size={26} weight="regular" />
               )}
             </button>
 
             {/* Logo */}
             <Link href="/" className="flex items-center" aria-label="Qredi">
-              <QrediLogo className="h-12 text-primary-foreground" />
+              <QrediLogo className="h-9 sm:h-12 text-primary-foreground" />
             </Link>
           </div>
 
           {/* CTA */}
-          <div className="flex flex-row gap-2">
+          <div className="flex flex-row items-center gap-1.5 sm:gap-2">
             <LanguagePreference defaultMode={true} />
             <LoginMenu defaultMode={true} />
           </div>
@@ -91,11 +91,11 @@ export default function Navbar() {
         {/* Navigation */}
         <div
           className={`overflow-hidden transition-all duration-300 ease-out w-full border-b border-border  ${
-            menuOpen ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
+            menuOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
           }`}
         >
-          <div className="px-24 pb-4 ">
-            <div className="flex items-center gap-10">
+          <div className="px-4 sm:px-8 lg:px-24 pb-4">
+            <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-10">
               {navItems.map((item) => (
                 <Link
                   key={item.href}

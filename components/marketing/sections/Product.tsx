@@ -69,7 +69,7 @@ export default function Product() {
 
               <div className="mt-8">
                 <Link
-                  href="#"
+                  href="/dashboard/login"
                   className="
                     inline-flex items-center gap-2
                     rounded-full
@@ -117,7 +117,7 @@ export default function Product() {
 
               <div className="mt-8">
                 <Link
-                  href="#"
+                  href="/myqredi/login"
                   className="
                     inline-flex items-center gap-2
                     rounded-full

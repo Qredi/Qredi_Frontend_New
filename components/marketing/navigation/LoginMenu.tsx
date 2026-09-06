@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { CaretDown, CaretRight, User } from "@phosphor-icons/react";
 
 import { MyQrediLogo } from "@/components/branding/MyQrediLogo";
@@ -24,16 +25,33 @@ const loginItems = [
 ];
 
 export function LoginMenu({ defaultMode }: LoginMenuProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
   return (
-    <div className="group relative">
+    <div className="group relative" ref={menuRef}>
       {/* Trigger */}
       <button
         type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
         className="
-          flex cursor-pointer items-center gap-2
+          flex cursor-pointer items-center gap-1.5 sm:gap-2
           rounded-full bg-primary
-          px-6 py-3
-          text-lg font-medium text-white
+          px-3.5 py-2 sm:px-6 sm:py-3
+          text-sm sm:text-lg font-medium text-white
           transition-colors duration-300
           hover:bg-primary-foreground
         "
@@ -45,21 +63,24 @@ export function LoginMenu({ defaultMode }: LoginMenuProps) {
         <CaretDown
           size={14}
           weight="bold"
-          className="transition-transform duration-200 group-hover:rotate-180"
+          className={`transition-transform duration-200 ${
+            isOpen ? "rotate-180" : "group-hover:rotate-180"
+          }`}
         />
       </button>
 
       {/* Dropdown */}
       <div
-        className="
-          invisible absolute right-0 top-full z-50
-          w-90 pt-3
-          translate-y-1 opacity-0
+        className={`
+          absolute right-0 top-full z-50
+          w-[calc(100vw-2rem)] max-w-sm sm:w-90 pt-3
           transition-all duration-200
-          group-hover:visible
-          group-hover:translate-y-0
-          group-hover:opacity-100
-        "
+          ${
+            isOpen
+              ? "visible translate-y-0 opacity-100"
+              : "invisible translate-y-1 opacity-0 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100"
+          }
+        `}
       >
         <div className="rounded-xl border border-border bg-white p-3 shadow-sm">
           {loginItems.map((item) => {
@@ -69,6 +90,7 @@ export function LoginMenu({ defaultMode }: LoginMenuProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => setIsOpen(false)}
                 className="
                   group/item
                   flex items-center gap-4
