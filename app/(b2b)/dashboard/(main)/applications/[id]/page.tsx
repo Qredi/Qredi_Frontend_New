@@ -1,6 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -13,62 +20,135 @@ import {
   WarningCircle,
   Clock,
 } from "@phosphor-icons/react";
-import { MOCK_APPLICATIONS } from "@/data/mockApplications";
+import { apiFetch } from "@/lib/api";
+import { applicationsStore } from "@/lib/applications-store";
+import type {
+  UserOut,
+  ScoreOut,
+  UMKMProfileOut,
+  QrisTransactionOut,
+  ACSScoreResponse,
+} from "@/lib/types";
+import {
+  fraudFlagToRisk,
+  loadProfileForUser,
+  riskToCap,
+} from "@/lib/applications";
+import { formatScoreDate } from "@/lib/scores";
 
-// Mock data detail tambahan untuk Application Detail
-const MOCK_DETAIL_DATA = {
-  submittedTimestamp: "24 Aug 2026, 14:32 WIB",
-  defaultProbability: "3.8%",
-  // Overview Data
-  businessProfile: {
-    name: "Kedai Nusantara",
-    category: "Food & Beverage",
-    qrisActiveSince: "12 Oct 2022",
-    businessDuration: "3 Years 10 Months",
-    location: "Jakarta Selatan, DKI Jakarta",
-  },
-  transactionSummary: {
-    totalTransactions: "1,284",
-    avgDailyTransactions: "42 tx / day",
-    avgTransactionValue: "Rp 87.500",
-    monthlyVolume: "Rp 112.350.000",
-    monthlyRevenue: "Rp 112.350.000",
-  },
-  // Score Factors (SHAP Explanation)
-  shapFactors: [
-    { factor: "Transaction Consistency", impact: "+18", isPositive: true },
-    { factor: "Revenue Growth Trend", impact: "+14", isPositive: true },
-    { factor: "QRIS Active Duration", impact: "+10", isPositive: true },
-    { factor: "Daily Revenue Stability", impact: "+8", isPositive: true },
-    { factor: "Transaction Volatility", impact: "-5", isPositive: false },
-  ],
-  // Fraud / Anti-Gestun Indicators
-  fraudIndicators: [
-    { label: "Transaction Pattern", status: "Normal", isAnomaly: false },
-    { label: "Transaction Frequency", status: "Normal", isAnomaly: false },
-    { label: "Transaction Amount Pattern", status: "Normal", isAnomaly: false },
-    { label: "Suspicious Activity", status: "None Detected", isAnomaly: false },
-  ],
-};
+type TabKey = "overview" | "score" | "fraud" | "business";
 
 export default function ApplicationDetailPage() {
   const params = useParams();
-  const appId = params?.id as string;
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "score" | "fraud" | "business"
-  >("overview");
+  const userId = params?.id as string;
 
-  // Ambil data dasar dari mock list
-  const baseApp = MOCK_APPLICATIONS.find((app) => app.id === appId) || {
-    id: appId || "QRD-00124",
-    merchantName: "Kedai Nusantara",
-    businessType: "Food & Beverage",
-    creditScore: 86,
-    riskLevel: "Low",
-    fraudRisk: "Low",
-    requestedAmount: "Rp 50.000.000",
-    submittedAt: "2 minutes ago",
-  };
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+
+  const [user, setUser] = useState<UserOut | null>(null);
+  const [score, setScore] = useState<ScoreOut | null>(null);
+  const [profile, setProfile] = useState<UMKMProfileOut | null>(null);
+  const [transactions, setTransactions] = useState<QrisTransactionOut[]>([]);
+  const [acsData, setAcsData] = useState<ACSScoreResponse | null>(null);
+  const [acsState, setAcsState] = useState<"idle" | "loading" | "done">("idle");
+  const acsRequested = useRef(false);
+  const [loading, setLoading] = useState(true);
+
+  const allApplications = useSyncExternalStore(
+    applicationsStore.subscribe,
+    applicationsStore.getSnapshot,
+    applicationsStore.getServerSnapshot,
+  );
+
+  const application = useMemo(
+    () => allApplications.find((a) => a.umkmId === userId),
+    [allApplications, userId],
+  );
+
+  useEffect(() => {
+    if (!userId) return;
+
+    async function load() {
+      // Setiap request ditangkap sendiri-sendiri: `GET /users/{id}` dan
+      // `GET /umkm-profiles/by-user/{id}` hanya untuk admin, jadi kalau login
+      // sebagai lender satu penolakan tidak boleh menggagalkan seluruh halaman.
+      const [u, s, p, txns] = await Promise.all([
+        apiFetch<UserOut>(`/users/${userId}`).catch(() => null),
+        apiFetch<ScoreOut>(`/scores/by-user/${userId}/latest`).catch(
+          () => null,
+        ),
+        loadProfileForUser(userId),
+        apiFetch<QrisTransactionOut[]>(
+          `/qris-transactions/by-user/${userId}?limit=500`,
+        ).catch(() => [] as QrisTransactionOut[]),
+      ]);
+
+      setUser(u);
+      setScore(s);
+      setProfile(p);
+      setTransactions(txns);
+      setLoading(false);
+    }
+    load();
+  }, [userId]);
+
+  /**
+   * `POST /acs-scores/{id}/score` menjalankan ulang ACS engine dan menulis
+   * baris baru di tabel `scores`. Karena itu panggilannya baru dilakukan saat
+   * tab "Score Analysis" dibuka, dan hanya sekali per kunjungan — sebelumnya
+   * dipanggil di setiap page load sehingga riwayat skor UMKM terisi duplikat
+   * dan terlihat stagnan.
+   */
+  const runAcsAnalysis = useCallback(() => {
+    if (acsRequested.current || !userId) return;
+    acsRequested.current = true;
+
+    setAcsState("loading");
+    apiFetch<ACSScoreResponse>(
+      `/acs-scores/${userId}/score?technical_scope=true`,
+      { method: "POST" },
+    )
+      .then((data) => setAcsData(data))
+      .catch(() => setAcsData(null))
+      .finally(() => setAcsState("done"));
+  }, [userId]);
+
+  const displayScore = score ? Math.round(score.acs_score) : 0;
+  const riskLevel = score ? riskToCap(score.risk_level) : "Medium";
+  const fraudFlags = transactions.filter((t) => t.fraud_flag).length;
+  const fraudRisk = fraudFlagToRisk(fraudFlags);
+  const totalTx = transactions.length;
+  const avgValue =
+    totalTx > 0
+      ? Math.round(transactions.reduce((s, t) => s + t.amount, 0) / totalTx)
+      : 0;
+
+  // Volume bulan kalender terakhir yang benar-benar punya transaksi — data
+  // seed bisa berakhir di bulan lalu, sehingga "bulan berjalan" akan 0.
+  const monthlyVolume = useMemo(() => {
+    if (transactions.length === 0) return 0;
+
+    const times = transactions
+      .map((t) => new Date(t.transaction_time))
+      .filter((d) => !Number.isNaN(d.getTime()));
+    if (times.length === 0) return 0;
+
+    const latest = times.reduce((a, b) => (b > a ? b : a));
+    return transactions
+      .filter((t) => {
+        const d = new Date(t.transaction_time);
+        return (
+          d.getMonth() === latest.getMonth() &&
+          d.getFullYear() === latest.getFullYear()
+        );
+      })
+      .reduce((s, t) => s + t.amount, 0);
+  }, [transactions]);
+
+  const merchantName =
+    profile?.business_name ??
+    application?.businessName ??
+    user?.full_name ??
+    "Unknown";
 
   const getRiskBadge = (level: string) => {
     switch (level) {
@@ -82,6 +162,16 @@ export default function ApplicationDetailPage() {
         return "bg-gray-50 text-gray-700 border-gray-200";
     }
   };
+
+  if (loading) {
+    return (
+      <div className="p-5">
+        <div className="h-24 bg-slate-100 animate-pulse rounded-lg mb-6" />
+        <div className="h-10 bg-slate-100 animate-pulse rounded-lg mb-6" />
+        <div className="h-64 bg-slate-100 animate-pulse rounded-lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-5">
@@ -102,25 +192,31 @@ export default function ApplicationDetailPage() {
           <div>
             <div className="flex items-center gap-4">
               <span className="font-mono text-sm font-semibold text-muted">
-                {baseApp.id}
+                {userId.slice(0, 8)}
               </span>
               <span
                 className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium ${getRiskBadge(
-                  baseApp.riskLevel,
+                  riskLevel,
                 )}`}
               >
-                {baseApp.riskLevel} Risk
+                {riskLevel} Risk
               </span>
             </div>
             <h1 className="mt-1 text-2xl font-semibold text-foreground py-2">
-              {baseApp.merchantName}
+              {merchantName}
             </h1>
             <div className="mt-1 flex items-center gap-4 text-sm text-muted">
-              <span>{baseApp.businessType}</span>
-              <span>•</span>
+              <span>{profile?.business_type ?? "UMKM"}</span>
+              <span>&#8226;</span>
               <span className="flex items-center gap-1">
                 <Clock size={14} />
-                Submitted {MOCK_DETAIL_DATA.submittedTimestamp}
+                {application
+                  ? `Applied ${new Date(application.submittedAt).toLocaleDateString("id-ID")}`
+                  : score?.created_at
+                    ? `Scored ${formatScoreDate(score.created_at)}`
+                    : score
+                      ? "Scored"
+                      : "Not yet scored"}
               </span>
             </div>
           </div>
@@ -133,7 +229,7 @@ export default function ApplicationDetailPage() {
               </p>
               <div className="mt-1 flex items-baseline gap-1">
                 <span className="text-3xl font-bold text-foreground">
-                  {baseApp.creditScore}
+                  {displayScore}
                 </span>
                 <span className="text-sm font-medium text-muted">/ 100</span>
               </div>
@@ -141,10 +237,10 @@ export default function ApplicationDetailPage() {
 
             <div>
               <p className="text-xs font-medium text-muted uppercase tracking-wider">
-                Default Prob.
+                Fraud Flags
               </p>
               <p className="mt-1 text-2xl font-semibold text-foreground">
-                {MOCK_DETAIL_DATA.defaultProbability}
+                {fraudFlags}
               </p>
             </div>
           </div>
@@ -154,50 +250,30 @@ export default function ApplicationDetailPage() {
       {/* Tab Navigation */}
       <div className="border-b border-border mb-6">
         <nav className="-mb-px flex gap-2">
-          <button
-            onClick={() => setActiveTab("overview")}
-            className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
-              activeTab === "overview"
-                ? "border-primary bg-primary/5 text-primary"
-                : "border-transparent text-muted hover:border-border hover:text-foreground"
-            }`}
-          >
-            <Storefront size={18} />
-            Overview
-          </button>
-          <button
-            onClick={() => setActiveTab("score")}
-            className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
-              activeTab === "score"
-                ? "border-primary bg-primary/5 text-primary"
-                : "border-transparent text-muted hover:border-border hover:text-foreground"
-            }`}
-          >
-            <TrendUp size={18} />
-            Score Analysis
-          </button>
-          <button
-            onClick={() => setActiveTab("fraud")}
-            className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
-              activeTab === "fraud"
-                ? "border-primary bg-primary/5 text-primary"
-                : "border-transparent text-muted hover:border-border hover:text-foreground"
-            }`}
-          >
-            <ShieldWarning size={18} />
-            Fraud Risk
-          </button>
-          <button
-            onClick={() => setActiveTab("business")}
-            className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
-              activeTab === "business"
-                ? "border-primary bg-primary/5 text-primary"
-                : "border-transparent text-muted hover:border-border hover:text-foreground"
-            }`}
-          >
-            <Database size={18} />
-            Business Data
-          </button>
+          {(
+            [
+              ["overview", "Overview", Storefront],
+              ["score", "Score Analysis", TrendUp],
+              ["fraud", "Fraud Risk", ShieldWarning],
+              ["business", "Business Data", Database],
+            ] as const
+          ).map(([key, label, Icon]) => (
+            <button
+              key={key}
+              onClick={() => {
+                setActiveTab(key);
+                if (key === "score") runAcsAnalysis();
+              }}
+              className={`flex items-center gap-2 border-b-2 py-3 px-5 text-base font-medium transition-colors ${
+                activeTab === key
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-transparent text-muted hover:border-border hover:text-foreground"
+              }`}
+            >
+              <Icon size={18} />
+              {label}
+            </button>
+          ))}
         </nav>
       </div>
 
@@ -213,72 +289,90 @@ export default function ApplicationDetailPage() {
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-muted">Business Name</span>
                 <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.businessProfile.name}
+                  {merchantName}
                 </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-muted">Business Category</span>
                 <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.businessProfile.category}
+                  {profile?.business_type ?? "-"}
                 </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-muted">Location</span>
                 <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.businessProfile.location}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-muted">QRIS Active Since</span>
-                <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.businessProfile.qrisActiveSince}
+                  {[profile?.city, profile?.province]
+                    .filter(Boolean)
+                    .join(", ") || "-"}
                 </span>
               </div>
               <div className="flex justify-between py-1">
-                <span className="text-muted">Business Duration</span>
+                <span className="text-muted">Years Operating</span>
                 <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.businessProfile.businessDuration}
+                  {profile?.years_operating != null
+                    ? `${profile.years_operating} Years`
+                    : "-"}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Transaction Summary */}
+          {/* Loan Request / Transaction Summary */}
           <div className="border border-border bg-surface p-6 shadow-sm">
             <h3 className="text-lg font-semibold text-foreground mb-4 border-b border-border pb-3">
-              Transaction Summary (QRIS)
+              {application ? "Loan Request" : "Transaction Summary (QRIS)"}
             </h3>
             <div className="space-y-4 text-base">
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-muted">Total Transactions</span>
-                <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.transactionSummary.totalTransactions}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-muted">Avg. Daily Transactions</span>
-                <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.transactionSummary.avgDailyTransactions}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-muted">Avg. Transaction Value</span>
-                <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.transactionSummary.avgTransactionValue}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-muted">Monthly Volume</span>
-                <span className="font-medium text-foreground">
-                  {MOCK_DETAIL_DATA.transactionSummary.monthlyVolume}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-muted">Requested Amount</span>
-                <span className="font-semibold text-primary">
-                  {baseApp.requestedAmount}
-                </span>
-              </div>
+              {application ? (
+                <>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Product</span>
+                    <span className="font-medium text-foreground">
+                      {application.productTitle}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Requested Amount</span>
+                    <span className="font-medium text-foreground">
+                      Rp {application.requestedAmount.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Tenor</span>
+                    <span className="font-medium text-foreground">
+                      {application.tenorMonths} months &#183;{" "}
+                      {application.interestRate}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted">Match Score</span>
+                    <span className="font-medium text-foreground">
+                      {application.matchScore}%
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Total Transactions</span>
+                    <span className="font-medium text-foreground">
+                      {totalTx.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-muted">Avg. Transaction Value</span>
+                    <span className="font-medium text-foreground">
+                      Rp {avgValue.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted">Monthly Volume</span>
+                    <span className="font-medium text-foreground">
+                      Rp {monthlyVolume.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -293,43 +387,52 @@ export default function ApplicationDetailPage() {
             </h3>
             <p className="text-sm text-muted">
               Key drivers contributing positively or negatively to the final
-              credit score of {baseApp.creditScore}/100.
+              credit score of {displayScore}/100.
             </p>
           </div>
 
           <div className="space-y-4">
-            {MOCK_DETAIL_DATA.shapFactors.map((item, idx) => (
-              <div key={idx} className="flex items-center gap-4 text-base">
-                {/* 1. Label Factor */}
-                <span className="w-52 shrink-0 font-medium text-foreground">
-                  {item.factor}
-                </span>
-
-                {/* 2. Impact Value */}
-                <span
-                  className={`w-10 text-right font-semibold shrink-0 ${
-                    item.isPositive ? "text-emerald-600" : "text-rose-600"
-                  }`}
-                >
-                  {item.impact}
-                </span>
-
-                {/* 3. Bar Visualizer */}
-                <div className="h-2 flex-1 bg-slate-100 rounded-sm overflow-hidden flex items-center">
-                  <div
-                    className={`h-full rounded-sm transition-all duration-300 ${
-                      item.isPositive ? "bg-emerald-500" : "bg-rose-500"
-                    }`}
-                    style={{
-                      width: `${Math.min(
-                        Math.abs(parseInt(item.impact)) * 4,
-                        100,
-                      )}%`,
-                    }}
-                  />
-                </div>
+            {acsState === "loading" ? (
+              <div className="text-muted text-sm">
+                Running the scoring engine...
               </div>
-            ))}
+            ) : acsData?.technical_explanation?.top_drivers?.length ? (
+              acsData.technical_explanation.top_drivers.map((driver, idx) => {
+                const isPositive = driver.direction === "positive";
+                const impactVal = Math.round(
+                  Math.abs(driver.shap_contribution) * 100,
+                );
+                return (
+                  <div key={idx} className="flex items-center gap-4 text-base">
+                    <span className="w-52 shrink-0 font-medium text-foreground">
+                      {driver.feature}
+                    </span>
+                    <span
+                      className={`w-10 text-right font-semibold shrink-0 ${
+                        isPositive ? "text-emerald-600" : "text-rose-600"
+                      }`}
+                    >
+                      {isPositive ? "+" : "-"}
+                      {impactVal}
+                    </span>
+                    <div className="h-2 flex-1 bg-slate-100 rounded-sm overflow-hidden flex items-center">
+                      <div
+                        className={`h-full rounded-sm transition-all duration-300 ${
+                          isPositive ? "bg-emerald-500" : "bg-rose-500"
+                        }`}
+                        style={{
+                          width: `${Math.min(impactVal * 2, 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-muted text-sm">
+                Score explanation data not available for this user.
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -351,15 +454,46 @@ export default function ApplicationDetailPage() {
               <span className="text-sm font-medium text-muted">
                 Integrity Status:
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-sm border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                <CheckCircle size={14} weight="fill" />
-                Healthy
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-sm border px-2.5 py-1 text-xs font-semibold ${
+                  fraudFlags === 0
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }`}
+              >
+                {fraudFlags === 0 ? (
+                  <CheckCircle size={14} weight="fill" />
+                ) : (
+                  <WarningCircle size={14} weight="fill" />
+                )}
+                {fraudFlags === 0 ? "Healthy" : `${fraudFlags} Flag(s)`}
               </span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {MOCK_DETAIL_DATA.fraudIndicators.map((ind, idx) => (
+            {[
+              {
+                label: "Transaction Pattern",
+                status: fraudFlags === 0 ? "Normal" : `${fraudFlags} anomalies`,
+                isAnomaly: fraudFlags > 0,
+              },
+              {
+                label: "Fraud Risk Level",
+                status: fraudRisk,
+                isAnomaly: fraudRisk !== "Low",
+              },
+              {
+                label: "Total Transactions",
+                status: `${totalTx} transactions analyzed`,
+                isAnomaly: false,
+              },
+              {
+                label: "Suspicious Activity",
+                status: fraudFlags === 0 ? "None Detected" : "Review Required",
+                isAnomaly: fraudFlags > 0,
+              },
+            ].map((ind, idx) => (
               <div
                 key={idx}
                 className="flex items-center justify-between border border-border bg-background p-4 rounded-sm"
@@ -402,19 +536,21 @@ export default function ApplicationDetailPage() {
               </p>
               <ul className="space-y-2 text-muted">
                 <li className="flex justify-between">
-                  <span>Daily Revenue Volatility:</span>
+                  <span>Total Transactions:</span>
                   <span className="text-foreground font-medium">
-                    0.12 (Low)
+                    {totalTx.toLocaleString()}
                   </span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Growth Rate (MoM):</span>
-                  <span className="text-foreground font-medium">+12.4%</span>
+                  <span>Avg. Transaction Value:</span>
+                  <span className="text-foreground font-medium">
+                    Rp {avgValue.toLocaleString("id-ID")}
+                  </span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Transaction Frequency:</span>
+                  <span>Monthly Volume:</span>
                   <span className="text-foreground font-medium">
-                    Consistent
+                    Rp {monthlyVolume.toLocaleString("id-ID")}
                   </span>
                 </li>
               </ul>
@@ -426,16 +562,24 @@ export default function ApplicationDetailPage() {
               </p>
               <ul className="space-y-2 text-muted">
                 <li className="flex justify-between">
-                  <span>Merchant Category Code (MCC):</span>
-                  <span className="text-foreground font-medium">5812</span>
+                  <span>Business Type:</span>
+                  <span className="text-foreground font-medium">
+                    {profile?.business_type ?? "-"}
+                  </span>
                 </li>
                 <li className="flex justify-between">
-                  <span>QRIS Age:</span>
-                  <span className="text-foreground font-medium">46 Months</span>
+                  <span>Employee Count:</span>
+                  <span className="text-foreground font-medium">
+                    {profile?.employee_count ?? "-"}
+                  </span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Peak Hours Consistency:</span>
-                  <span className="text-foreground font-medium">High</span>
+                  <span>Monthly Revenue:</span>
+                  <span className="text-foreground font-medium">
+                    {profile?.monthly_revenue
+                      ? `Rp ${profile.monthly_revenue.toLocaleString("id-ID")}`
+                      : "-"}
+                  </span>
                 </li>
               </ul>
             </div>

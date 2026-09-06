@@ -21,75 +21,79 @@ ChartJS.register(
   Title,
 );
 
-const data = {
-  labels: ["0–50", "51–70", "71–80", "81–90", "91–100"],
+interface ScoreDistributionProps {
+  counts: number[];
+}
 
-  datasets: [
-    {
-      label: "Applications",
-      data: [82, 156, 284, 421, 341],
+export default function ScoreDistribution({ counts }: ScoreDistributionProps) {
+  const data = {
+    labels: ["0–50", "51–70", "71–80", "81–90", "91–100"],
 
-      backgroundColor: "#18B5BA",
-      borderColor: "#18B5BA",
+    datasets: [
+      {
+        label: "Applications",
+        data: counts,
 
-      borderWidth: 1,
+        backgroundColor: "#18B5BA",
+        borderColor: "#18B5BA",
 
-      borderRadius: 2,
+        borderWidth: 1,
 
-      barPercentage: 0.65,
-      categoryPercentage: 0.75,
-    },
-  ],
-};
+        borderRadius: 2,
 
-const options = {
-  responsive: true,
-  maintainAspectRatio: false,
+        barPercentage: 0.65,
+        categoryPercentage: 0.75,
+      },
+    ],
+  };
 
-  plugins: {
-    legend: {
-      display: true,
-      position: "bottom" as const,
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
 
-      labels: {
-        usePointStyle: true,
-        pointStyle: "rect",
-        boxWidth: 8,
-        padding: 20,
+    plugins: {
+      legend: {
+        display: true,
+        position: "bottom" as const,
+
+        labels: {
+          usePointStyle: true,
+          pointStyle: "rect",
+          boxWidth: 8,
+          padding: 20,
+        },
+      },
+
+      tooltip: {
+        enabled: true,
       },
     },
 
-    tooltip: {
-      enabled: true,
-    },
-  },
+    scales: {
+      x: {
+        grid: {
+          display: false,
+        },
 
-  scales: {
-    x: {
-      grid: {
-        display: false,
+        ticks: {
+          color: "#6b7280",
+        },
       },
 
-      ticks: {
-        color: "#6b7280",
-      },
-    },
+      y: {
+        beginAtZero: true,
 
-    y: {
-      beginAtZero: true,
+        grid: {
+          color: "#e5e7eb",
+        },
 
-      grid: {
-        color: "#e5e7eb",
-      },
-
-      ticks: {
-        color: "#6b7280",
+        ticks: {
+          color: "#6b7280",
+        },
       },
     },
-  },
-};
+  };
 
-export default function ScoreDistribution() {
   return (
     <div className="border border-border bg-surface p-6 shadow-sm">
       {/* Header */}

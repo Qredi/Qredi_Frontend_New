@@ -1,32 +1,83 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useSyncExternalStore } from "react";
 import { MagnifyingGlass, Funnel, Rows } from "@phosphor-icons/react";
 import ApplicationsTable from "@/components/b2b/tables/ApplicationsTable";
-import { MOCK_APPLICATIONS, Application } from "@/data/mockApplications";
+import { applicationsStore } from "@/lib/applications-store";
+import {
+  enrichWithFraudRisk,
+  loadBackendApplications,
+  loadMerchantPipeline,
+  localApplicationToRow,
+  mergeApplications,
+  type Application,
+} from "@/lib/applications";
 
 export default function ApplicationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [riskFilter, setRiskFilter] = useState<string>("All");
   const [fraudFilter, setFraudFilter] = useState<string>("All");
   const [scoreFilter, setScoreFilter] = useState<string>("All");
+  const [pipeline, setPipeline] = useState<Application[]>([]);
+  const [backendApplications, setBackendApplications] = useState<Application[]>(
+    [],
+  );
+  const [loading, setLoading] = useState(true);
+
+  const localApplications = useSyncExternalStore(
+    applicationsStore.subscribe,
+    applicationsStore.getSnapshot,
+    applicationsStore.getServerSnapshot,
+  );
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [merchants, applications] = await Promise.all([
+          loadMerchantPipeline(),
+          loadBackendApplications(),
+        ]);
+        setPipeline(merchants);
+        setBackendApplications(applications);
+        setLoading(false);
+
+        // Pass kedua: Fraud Risk butuh satu request transaksi per merchant,
+        // jadi tabel ditampilkan dulu baru badge-nya menyusul.
+        setPipeline(await enrichWithFraudRisk(merchants));
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const applications = useMemo(() => {
+    const backendIds = new Set(backendApplications.map((a) => a.id));
+    const local = localApplications
+      .filter((a) => !backendIds.has(a.id))
+      .map(localApplicationToRow);
+    return [...backendApplications, ...local];
+  }, [backendApplications, localApplications]);
+
+  const rows = useMemo(
+    () => mergeApplications(pipeline, applications),
+    [pipeline, applications],
+  );
 
   const filteredApplications = useMemo(() => {
-    return MOCK_APPLICATIONS.filter((item) => {
-      // Search Matching (ID or Merchant Name)
-      const matchesSearch =
-        item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.merchantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.businessType.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.toLowerCase();
 
-      // Risk Level Matching
+    return rows.filter((item) => {
+      const matchesSearch =
+        item.id.toLowerCase().includes(query) ||
+        item.merchantName.toLowerCase().includes(query) ||
+        item.businessType.toLowerCase().includes(query);
+
       const matchesRisk = riskFilter === "All" || item.riskLevel === riskFilter;
 
-      // Fraud Risk Matching
       const matchesFraud =
         fraudFilter === "All" || item.fraudRisk === fraudFilter;
 
-      // Score Range Matching
       let matchesScore = true;
       if (scoreFilter === "0-50") matchesScore = item.creditScore <= 50;
       else if (scoreFilter === "51-70")
@@ -39,7 +90,7 @@ export default function ApplicationsPage() {
 
       return matchesSearch && matchesRisk && matchesFraud && matchesScore;
     });
-  }, [searchQuery, riskFilter, fraudFilter, scoreFilter]);
+  }, [rows, searchQuery, riskFilter, fraudFilter, scoreFilter]);
 
   return (
     <div className="p-5">
@@ -132,7 +183,9 @@ export default function ApplicationsPage() {
         </div>
 
         {/* Applications Table */}
-        {filteredApplications.length > 0 ? (
+        {loading ? (
+          <div className="py-12 text-center text-muted">Loading...</div>
+        ) : filteredApplications.length > 0 ? (
           <ApplicationsTable data={filteredApplications} />
         ) : (
           <div className="py-12 text-center text-muted">

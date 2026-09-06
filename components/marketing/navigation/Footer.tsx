@@ -60,7 +60,7 @@ export default function Footer() {
 
             <div className="mt-5 flex flex-col items-start gap-3">
               <Link
-                href="#"
+                href="/myqredi/login"
                 className="
                   group inline-flex items-center gap-2
                   text-base text-white/80
@@ -77,7 +77,7 @@ export default function Footer() {
               </Link>
 
               <Link
-                href="#"
+                href="/dashboard/login"
                 className="
                   group inline-flex items-center gap-2
                   text-base text-white/70

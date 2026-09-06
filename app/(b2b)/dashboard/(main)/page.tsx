@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   ClipboardText,
   ChartLineUp,
@@ -15,32 +16,150 @@ import KpiCard from "@/components/b2b/ui/KpiCard";
 import ApplicationTrend from "@/components/b2b/charts/ApplicationTrend";
 import ScoreDistribution from "@/components/b2b/charts/ScoreDistribution";
 import ApplicationsTable from "@/components/b2b/tables/ApplicationsTable";
-import { MOCK_APPLICATIONS } from "@/data/mockApplications";
+import { applicationsStore } from "@/lib/applications-store";
+import {
+  enrichWithFraudRisk,
+  loadBackendApplications,
+  loadMerchantPipeline,
+  localApplicationToRow,
+  mergeApplications,
+  type Application,
+} from "@/lib/applications";
 
-const kpis = [
-  {
-    label: "Total Applications",
-    value: "1,284",
-    icon: ClipboardText,
-  },
-  {
-    label: "Average Score",
-    value: "76.4",
-    icon: ChartLineUp,
-  },
-  {
-    label: "High Risk",
-    value: "124",
-    icon: Warning,
-  },
-  {
-    label: "Scored This Month",
-    value: "342",
-    icon: CheckCircle,
-  },
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
+function getDistributionBuckets(apps: Application[]): number[] {
+  const buckets = [0, 0, 0, 0, 0]; // 0-50, 51-70, 71-80, 81-90, 91-100
+  for (const app of apps) {
+    const s = app.creditScore;
+    if (s <= 50) buckets[0]++;
+    else if (s <= 70) buckets[1]++;
+    else if (s <= 80) buckets[2]++;
+    else if (s <= 90) buckets[3]++;
+    else buckets[4]++;
+  }
+  return buckets;
+}
+
+/**
+ * Tren pengajuan per bulan.
+ *
+ * Memakai `submittedAt` dari pengajuan — `ScoreOut` maupun `MatchOut` di
+ * backend tidak mengirim timestamp, jadi skor tidak bisa dipakai sebagai
+ * sumbu waktu.
+ */
+function getMonthlyTrend(apps: Application[]): {
+  labels: string[];
+  data: number[];
+} {
+  const monthCounts = new Map<string, number>();
+
+  for (const app of apps) {
+    if (!app.submittedAt) continue;
+    const d = new Date(app.submittedAt);
+    if (Number.isNaN(d.getTime())) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
+    monthCounts.set(key, (monthCounts.get(key) ?? 0) + 1);
+  }
+
+  const sortedKeys = [...monthCounts.keys()].sort();
+  return {
+    labels: sortedKeys.map((k) => MONTH_NAMES[Number(k.split("-")[1])]),
+    data: sortedKeys.map((k) => monthCounts.get(k) ?? 0),
+  };
+}
+
 export default function DashboardPage() {
+  const [pipeline, setPipeline] = useState<Application[]>([]);
+  const [backendApplications, setBackendApplications] = useState<Application[]>(
+    [],
+  );
+
+  const localApplications = useSyncExternalStore(
+    applicationsStore.subscribe,
+    applicationsStore.getSnapshot,
+    applicationsStore.getServerSnapshot,
+  );
+
+  useEffect(() => {
+    async function load() {
+      const [merchants, applications] = await Promise.all([
+        loadMerchantPipeline(),
+        loadBackendApplications(),
+      ]);
+      setPipeline(merchants);
+      setBackendApplications(applications);
+
+      // Pass kedua: Fraud Risk butuh satu request transaksi per merchant.
+      setPipeline(await enrichWithFraudRisk(merchants));
+    }
+    load();
+  }, []);
+
+  const applications = useMemo(() => {
+    const backendIds = new Set(backendApplications.map((a) => a.id));
+    const local = localApplications
+      .filter((a) => !backendIds.has(a.id))
+      .map(localApplicationToRow);
+    return [...backendApplications, ...local];
+  }, [backendApplications, localApplications]);
+
+  const rows = useMemo(
+    () => mergeApplications(pipeline, applications),
+    [pipeline, applications],
+  );
+
+  const kpis = useMemo(() => {
+    const scored = pipeline.filter((a) => a.score != null || a.creditScore > 0);
+    const averageScore =
+      scored.length > 0
+        ? scored.reduce((sum, a) => sum + a.creditScore, 0) / scored.length
+        : 0;
+    const highRisk = scored.filter((a) => a.riskLevel === "High").length;
+
+    return [
+      {
+        label: "Total Applications",
+        value: applications.length.toLocaleString("en-US"),
+        icon: ClipboardText,
+      },
+      {
+        label: "Average Score",
+        value: averageScore ? averageScore.toFixed(1) : "-",
+        icon: ChartLineUp,
+      },
+      {
+        label: "High Risk",
+        value: highRisk.toLocaleString("en-US"),
+        icon: Warning,
+      },
+      {
+        label: "Merchants Scored",
+        value: scored.length.toLocaleString("en-US"),
+        icon: CheckCircle,
+      },
+    ];
+  }, [pipeline, applications]);
+
+  const trend = useMemo(() => getMonthlyTrend(applications), [applications]);
+  const buckets = useMemo(
+    () => getDistributionBuckets(pipeline.filter((a) => a.creditScore > 0)),
+    [pipeline],
+  );
+
   return (
     <div className="p-5">
       <div className="mb-4">
@@ -69,8 +188,8 @@ export default function DashboardPage() {
 
       {/* Charts */}
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <ApplicationTrend />
-        <ScoreDistribution />
+        <ApplicationTrend labels={trend.labels} data={trend.data} />
+        <ScoreDistribution counts={buckets} />
       </div>
 
       {/* Recent Applications Table */}
@@ -96,7 +215,7 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <ApplicationsTable data={MOCK_APPLICATIONS} limit={5} />
+        <ApplicationsTable data={rows} limit={5} />
       </div>
     </div>
   );

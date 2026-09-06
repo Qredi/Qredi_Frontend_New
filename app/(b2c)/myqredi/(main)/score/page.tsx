@@ -1,64 +1,110 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { CaretRight, Sparkle, Clock } from "@phosphor-icons/react";
 import ScoreGauge from "@/components/b2c/score/ScoreGauge";
 import ScoreTrend from "@/components/b2c/score/ScoreTrend";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { apiFetch } from "@/lib/api";
+import {
+  buildInsight,
+  buildScoreKpis,
+  buildScoreTrend,
+  findOldestTransactionTime,
+  formatScoreDate,
+  getRiskCategory,
+  monthsBetween,
+  TREND_POINTS,
+  type ScoreKpi,
+  type ScoreTrend as ScoreTrendData,
+} from "@/lib/scores";
+import type { QrisTransactionOut, UMKMProfileOut, ScoreOut } from "@/lib/types";
 
-const MOCK_SCORE_DATA = {
-  userGreetingName: "Budi",
-  businessName: "Kedai Kopi Nusantara",
-  score: 82,
-  category: "Baik",
-  lastUpdated: "26 Agustus 2026",
-  kpis: [
-    {
-      id: "consistency",
-      label: "Konsistensi Transaksi",
-      value: "Sangat Tinggi",
-      valueColor: "text-emerald-600",
-    },
-    {
-      id: "activity",
-      label: "Aktivitas Transaksi",
-      value: "42 tx / hari",
-      valueColor: "text-foreground",
-    },
-    {
-      id: "stability",
-      label: "Risiko",
-      value: "Rendah",
-      valueColor: "text-emerald-600",
-    },
-    {
-      id: "period",
-      label: "Periode Data QRIS",
-      value: "10 Bulan",
-      valueColor: "text-foreground",
-    },
-  ],
-  insight:
-    "Skor Anda berada dalam kategori Baik. Konsistensi transaksi harian dan pertumbuhan omzet yang stabil menjadi faktor pendorong utama kredit Anda bulan ini.",
-  scoreTrends: [
-    { month: "Apr", score: 74 },
-    { month: "Mei", score: 76 },
-    { month: "Jun", score: 78 },
-    { month: "Jul", score: 78 },
-    { month: "Agu", score: 82 },
-  ],
+const EMPTY_TREND: ScoreTrendData = {
+  points: [],
+  diff: 0,
+  hasDates: false,
+  isFlat: true,
 };
 
+/** Cukup untuk menghitung aktivitas & konsistensi terkini tanpa payload besar. */
+const ACTIVITY_WINDOW = 1000;
+
 export default function ScorePage() {
-  const {
-    userGreetingName,
-    businessName,
-    score,
-    category,
-    lastUpdated,
-    kpis,
-    insight,
-    scoreTrends,
-  } = MOCK_SCORE_DATA;
+  const { user } = useAuth();
+  const [businessName, setBusinessName] = useState<string>("");
+  const [score, setScore] = useState<number | null>(null);
+  const [riskCategory, setRiskCategory] = useState<string>("");
+  const [lastUpdated, setLastUpdated] = useState<string>("");
+  const [trend, setTrend] = useState<ScoreTrendData>(EMPTY_TREND);
+  const [insight, setInsight] = useState<string>("");
+  const [kpis, setKpis] = useState<ScoreKpi[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [profile, latestScore, history, transactions] = await Promise.all([
+          apiFetch<UMKMProfileOut>("/umkm-profiles/me").catch(() => null),
+          apiFetch<ScoreOut>("/scores/me/latest"),
+          apiFetch<ScoreOut[]>(
+            `/scores/me/history?limit=${TREND_POINTS}`,
+          ).catch(() => [] as ScoreOut[]),
+          apiFetch<QrisTransactionOut[]>(
+            `/qris-transactions/me?limit=${ACTIVITY_WINDOW}`,
+          ).catch(() => [] as QrisTransactionOut[]),
+        ]);
+
+        setBusinessName(profile?.business_name ?? "Usaha Anda");
+
+        const displayScore = Math.round(latestScore.acs_score);
+        setScore(displayScore);
+        setRiskCategory(getRiskCategory(displayScore));
+        setLastUpdated(formatScoreDate(latestScore.created_at));
+
+        // Riwayat mungkin belum memuat penilaian terbaru kalau limit-nya pas;
+        // pastikan skor terbaru selalu jadi titik terakhir grafik.
+        const series = history.some((s) => s.id === latestScore.id)
+          ? history
+          : [latestScore, ...history];
+
+        const nextTrend = buildScoreTrend(series);
+        setTrend(nextTrend);
+        setInsight(buildInsight(displayScore, nextTrend));
+
+        // KPI tampil lebih dulu dengan data yang sudah ada; periode QRIS
+        // menyusul karena butuh probe transaksi tertua.
+        setKpis(buildScoreKpis(transactions, latestScore.risk_level, null));
+        setLoading(false);
+
+        const newest = transactions[0]?.transaction_time;
+        const oldest = await findOldestTransactionTime(transactions);
+        setKpis(
+          buildScoreKpis(
+            transactions,
+            latestScore.risk_level,
+            oldest && newest ? monthsBetween(oldest, newest) : null,
+          ),
+        );
+      } catch {
+        // fallback to safe defaults
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-20 bg-slate-100 animate-pulse rounded-lg" />
+        <div className="h-48 bg-slate-100 animate-pulse rounded-lg" />
+        <div className="h-24 bg-slate-100 animate-pulse rounded-lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -66,13 +112,13 @@ export default function ScorePage() {
       <div className="flex items-center justify-between pt-1">
         <div>
           <h1 className="text-xl font-bold text-foreground">
-            Halo, {userGreetingName} 👋
+            Halo, {user?.full_name?.split(" ")[0] ?? "Pengguna"} &#x1F44B;
           </h1>
           <p className="text-sm text-muted mt-0.5">{businessName}</p>
         </div>
 
         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-          ● Terhubung QRIS
+          &#x25CF; Terhubung QRIS
         </span>
       </div>
 
@@ -82,7 +128,7 @@ export default function ScorePage() {
           Skor Qredi Saya
         </p>
 
-        <ScoreGauge score={score} statusText={category} />
+        <ScoreGauge score={score ?? 0} statusText={riskCategory} />
 
         {/* Last Updated */}
         <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted">
@@ -131,8 +177,13 @@ export default function ScorePage() {
         </p>
       </div>
 
-      {/* Perkembangan Skor (Komponen ScoreTrend) */}
-      <ScoreTrend scoreTrends={scoreTrends} diffPoin="+8 Poin" />
+      {/* Perkembangan Skor */}
+      {trend.points.length > 1 && (
+        <ScoreTrend
+          scoreTrends={trend.points}
+          diffPoin={`${trend.diff >= 0 ? "+" : ""}${trend.diff} Poin`}
+        />
+      )}
     </div>
   );
 }

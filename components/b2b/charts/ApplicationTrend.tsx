@@ -23,79 +23,87 @@ ChartJS.register(
   Title,
 );
 
-const data = {
-  labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+interface ApplicationTrendProps {
+  labels: string[];
+  data: number[];
+}
 
-  datasets: [
-    {
-      label: "Applications",
-      data: [180, 240, 215, 290, 340, 380],
+export default function ApplicationTrend({
+  labels,
+  data,
+}: ApplicationTrendProps) {
+  const chartData = {
+    labels,
 
-      borderColor: "#e5002b",
-      backgroundColor: "#e5002b",
+    datasets: [
+      {
+        label: "Applications",
+        data,
 
-      borderWidth: 2,
-      pointRadius: 4,
-      pointHoverRadius: 6,
+        borderColor: "#e5002b",
+        backgroundColor: "#e5002b",
 
-      tension: 0,
+        borderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+
+        tension: 0,
+      },
+    ],
+  };
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+
+    interaction: {
+      mode: "index" as const,
+      intersect: false,
     },
-  ],
-};
 
-const options = {
-  responsive: true,
-  maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: true,
+        position: "bottom" as const,
 
-  interaction: {
-    mode: "index" as const,
-    intersect: false,
-  },
+        labels: {
+          usePointStyle: true,
+          pointStyle: "circle",
+          boxWidth: 8,
+          padding: 20,
+        },
+      },
 
-  plugins: {
-    legend: {
-      display: true,
-      position: "bottom" as const,
-
-      labels: {
-        usePointStyle: true,
-        pointStyle: "circle",
-        boxWidth: 8,
-        padding: 20,
+      tooltip: {
+        enabled: true,
       },
     },
 
-    tooltip: {
-      enabled: true,
-    },
-  },
+    scales: {
+      x: {
+        grid: {
+          display: false,
+        },
 
-  scales: {
-    x: {
-      grid: {
-        display: false,
+        ticks: {
+          color: "#6b7280",
+        },
       },
 
-      ticks: {
-        color: "#6b7280",
-      },
-    },
+      y: {
+        beginAtZero: true,
 
-    y: {
-      beginAtZero: true,
+        grid: {
+          color: "#e5e7eb",
+        },
 
-      grid: {
-        color: "#e5e7eb",
-      },
-
-      ticks: {
-        color: "#6b7280",
+        ticks: {
+          color: "#6b7280",
+        },
       },
     },
-  },
-};
+  };
 
-export default function ApplicationTrend() {
   return (
     <div className="border border-border bg-surface p-6 shadow-sm">
       {/* Header */}
@@ -111,7 +119,7 @@ export default function ApplicationTrend() {
 
       {/* Chart */}
       <div className="h-80">
-        <Line data={data} options={options} />
+        <Line data={chartData} options={options} />
       </div>
     </div>
   );

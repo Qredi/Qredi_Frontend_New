@@ -1,4 +1,7 @@
+"use client";
+
 import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 import { CaretDown, Globe } from "@phosphor-icons/react";
 
 interface LanguagePreferenceProps {
@@ -17,48 +20,69 @@ const languages = [
 ];
 
 export function LanguagePreference({ defaultMode }: LanguagePreferenceProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
   return (
-    <div className="group relative">
+    <div className="group relative" ref={menuRef}>
       {/* Trigger */}
       <button
         type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
         className={`
-          flex items-center gap-2
+          flex items-center gap-1.5 sm:gap-2
           rounded-full
-          px-6 py-3
-          text-lg font-medium
+          px-3 py-2 sm:px-6 sm:py-3
+          text-sm sm:text-lg font-medium
           transition-colors duration-300
           hover:bg-slate-100 cursor-pointer
         `}
       >
         <Globe size={20} weight="regular" />
 
-        <span>Bahasa Indonesia</span>
+        <span className="hidden sm:inline">Bahasa Indonesia</span>
 
         <CaretDown
           size={14}
           weight="bold"
-          className="transition-transform duration-200 group-hover:rotate-180"
+          className={`hidden sm:inline transition-transform duration-200 ${
+            isOpen ? "rotate-180" : "group-hover:rotate-180"
+          }`}
         />
       </button>
 
       {/* Dropdown */}
       <div
-        className="
-          invisible absolute right-0 top-full z-50
-          w-64 pt-3
-          translate-y-1 opacity-0
+        className={`
+          absolute right-0 top-full z-50
+          w-[calc(100vw-2rem)] max-w-xs sm:w-64 pt-3
           transition-all duration-200
-          group-hover:visible
-          group-hover:translate-y-0
-          group-hover:opacity-100        
-        "
+          ${
+            isOpen
+              ? "visible translate-y-0 opacity-100"
+              : "invisible translate-y-1 opacity-0 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100"
+          }
+        `}
       >
         <div className="border border-border bg-white p-3 shadow-sm rounded-xl">
           {languages.map((language) => (
             <button
               key={language.name}
               type="button"
+              onClick={() => setIsOpen(false)}
               className="
                 flex w-full items-center gap-3
                 px-4 py-3
