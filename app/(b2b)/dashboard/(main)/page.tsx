@@ -12,10 +12,13 @@ import {
   ArrowRight,
 } from "@phosphor-icons/react";
 
-import KpiCard from "@/components/b2b/ui/KpiCard";
+import KpiCard, { KpiCardSkeleton } from "@/components/b2b/ui/KpiCard";
 import ApplicationTrend from "@/components/b2b/charts/ApplicationTrend";
 import ScoreDistribution from "@/components/b2b/charts/ScoreDistribution";
-import ApplicationsTable from "@/components/b2b/tables/ApplicationsTable";
+import ChartSkeleton from "@/components/b2b/charts/ChartSkeleton";
+import ApplicationsTable, {
+  ApplicationsTableSkeleton,
+} from "@/components/b2b/tables/ApplicationsTable";
 import { applicationsStore } from "@/lib/applications-store";
 import {
   enrichWithFraudRisk,
@@ -87,6 +90,7 @@ export default function DashboardPage() {
   const [backendApplications, setBackendApplications] = useState<Application[]>(
     [],
   );
+  const [loading, setLoading] = useState(true);
 
   const localApplications = useSyncExternalStore(
     applicationsStore.subscribe,
@@ -96,15 +100,22 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function load() {
-      const [merchants, applications] = await Promise.all([
-        loadMerchantPipeline(),
-        loadBackendApplications(),
-      ]);
-      setPipeline(merchants);
-      setBackendApplications(applications);
+      try {
+        const [merchants, applications] = await Promise.all([
+          loadMerchantPipeline(),
+          loadBackendApplications(),
+        ]);
+        setPipeline(merchants);
+        setBackendApplications(applications);
+        setLoading(false);
 
-      // Pass kedua: Fraud Risk butuh satu request transaksi per merchant.
-      setPipeline(await enrichWithFraudRisk(merchants));
+        // Pass kedua: Fraud Risk butuh satu request transaksi per merchant.
+        setPipeline(await enrichWithFraudRisk(merchants));
+      } catch (err) {
+        console.error("Failed to load dashboard data:", err);
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, []);
@@ -175,21 +186,34 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
-          {kpis.map((kpi) => (
-            <KpiCard
-              key={kpi.label}
-              label={kpi.label}
-              value={kpi.value}
-              icon={kpi.icon}
-            />
-          ))}
+          {loading
+            ? Array.from({ length: 4 }).map((_, i) => (
+                <KpiCardSkeleton key={i} />
+              ))
+            : kpis.map((kpi) => (
+                <KpiCard
+                  key={kpi.label}
+                  label={kpi.label}
+                  value={kpi.value}
+                  icon={kpi.icon}
+                />
+              ))}
         </div>
       </div>
 
       {/* Charts */}
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <ApplicationTrend labels={trend.labels} data={trend.data} />
-        <ScoreDistribution counts={buckets} />
+        {loading ? (
+          <>
+            <ChartSkeleton title="Application Trend" />
+            <ScoreDistribution counts={[0, 0, 0, 0, 0]} />
+          </>
+        ) : (
+          <>
+            <ApplicationTrend labels={trend.labels} data={trend.data} />
+            <ScoreDistribution counts={buckets} />
+          </>
+        )}
       </div>
 
       {/* Recent Applications Table */}
@@ -215,7 +239,11 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <ApplicationsTable data={rows} limit={5} />
+        {loading ? (
+          <ApplicationsTableSkeleton rows={5} />
+        ) : (
+          <ApplicationsTable data={rows} limit={5} />
+        )}
       </div>
     </div>
   );

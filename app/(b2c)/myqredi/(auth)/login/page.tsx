@@ -19,12 +19,29 @@ export default function MyQrediLoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail && !trimmedPassword) {
+      setError("Email dan password wajib diisi.");
+      return;
+    }
+    if (!trimmedEmail) {
+      setError("Email wajib diisi.");
+      return;
+    }
+    if (!trimmedPassword) {
+      setError("Password wajib diisi.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(trimmedEmail, password);
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.detail);
+        setError(typeof err.detail === "string" ? err.detail : "Email atau password salah.");
       } else {
         setError("Terjadi kesalahan. Silakan coba lagi.");
       }
@@ -69,8 +86,12 @@ export default function MyQrediLoginPage() {
               label="Email"
               placeholder="Masukkan email"
               autoComplete="email"
+              required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (error) setError("");
+              }}
             />
 
             <InputField
@@ -80,8 +101,12 @@ export default function MyQrediLoginPage() {
               label="Password"
               placeholder="Masukkan password"
               autoComplete="current-password"
+              required
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (error) setError("");
+              }}
             />
 
             {error && (
@@ -92,7 +117,7 @@ export default function MyQrediLoginPage() {
               type="submit"
               variant="primary"
               className="w-full"
-              disabled={submitting}
+              disabled={submitting || !email.trim() || !password.trim()}
             >
               {submitting ? "Masuk..." : "Masuk"}
             </Button>

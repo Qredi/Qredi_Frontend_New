@@ -47,7 +47,6 @@ export default function ApplicationsTable({
             <th className="px-4 py-3.5">Credit Score</th>
             <th className="px-4 py-3.5">Risk Level</th>
             <th className="px-4 py-3.5">Fraud Risk</th>
-            <th className="px-4 py-3.5">Requested Amount</th>
             <th className="px-4 py-3.5 text-right">Action</th>
           </tr>
         </thead>
@@ -90,9 +89,6 @@ export default function ApplicationsTable({
                   {item.fraudRisk}
                 </span>
               </td>
-              <td className="px-4 py-4 font-medium text-foreground">
-                {item.requestedAmount}
-              </td>
               <td className="px-4 py-4 text-right">
                 <Link
                   href={`/dashboard/applications/${item.userId}`}
@@ -101,6 +97,50 @@ export default function ApplicationsTable({
                   View Detail
                   <ArrowRight size={14} />
                 </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ApplicationsTableSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="w-full overflow-x-auto">
+      <table className="w-full text-left text-sm text-foreground">
+        <thead className="border-b border-border bg-slate-50 text-xs font-semibold uppercase tracking-wider text-muted">
+          <tr>
+            <th className="px-4 py-3.5">Application ID</th>
+            <th className="px-4 py-3.5">Merchant</th>
+            <th className="px-4 py-3.5">Credit Score</th>
+            <th className="px-4 py-3.5">Risk Level</th>
+            <th className="px-4 py-3.5">Fraud Risk</th>
+            <th className="px-4 py-3.5 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border bg-surface">
+          {Array.from({ length: rows }).map((_, i) => (
+            <tr key={i} className="animate-pulse">
+              <td className="px-4 py-4">
+                <div className="h-4 w-20 bg-slate-200 rounded" />
+              </td>
+              <td className="px-4 py-4">
+                <div className="h-4 w-32 bg-slate-200 rounded mb-1.5" />
+                <div className="h-3 w-20 bg-slate-100 rounded" />
+              </td>
+              <td className="px-4 py-4">
+                <div className="h-4 w-12 bg-slate-200 rounded" />
+              </td>
+              <td className="px-4 py-4">
+                <div className="h-5 w-16 bg-slate-200 rounded-sm" />
+              </td>
+              <td className="px-4 py-4">
+                <div className="h-5 w-16 bg-slate-200 rounded-sm" />
+              </td>
+              <td className="px-4 py-4 text-right">
+                <div className="inline-block h-4 w-16 bg-slate-200 rounded" />
               </td>
             </tr>
           ))}

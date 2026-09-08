@@ -2,7 +2,9 @@
 
 import { useState, useMemo, useEffect, useSyncExternalStore } from "react";
 import { MagnifyingGlass, Funnel, Rows } from "@phosphor-icons/react";
-import ApplicationsTable from "@/components/b2b/tables/ApplicationsTable";
+import ApplicationsTable, {
+  ApplicationsTableSkeleton,
+} from "@/components/b2b/tables/ApplicationsTable";
 import { applicationsStore } from "@/lib/applications-store";
 import {
   enrichWithFraudRisk,
@@ -184,7 +186,7 @@ export default function ApplicationsPage() {
 
         {/* Applications Table */}
         {loading ? (
-          <div className="py-12 text-center text-muted">Loading...</div>
+          <ApplicationsTableSkeleton rows={7} />
         ) : filteredApplications.length > 0 ? (
           <ApplicationsTable data={filteredApplications} />
         ) : (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import FinancingCard from "@/components/b2c/financing/FinancingCard";
 import type { FinancingItem } from "@/components/b2c/financing/FinancingCard";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -9,6 +10,7 @@ import {
   applicationsForUmkm,
   applicationsStore,
 } from "@/lib/applications-store";
+import { defaultRequestedAmount, submitApplication } from "@/lib/financing";
 import {
   formatJuta,
   getMatchScore,
@@ -16,7 +18,7 @@ import {
   LENDER_PRODUCTS,
 } from "@/lib/lenders";
 import { getRiskCategory } from "@/lib/scores";
-import type { MatchStatus, MatchOut, ScoreOut } from "@/lib/types";
+import type { MatchStatus, MatchOut, ScoreOut, UMKMProfileOut } from "@/lib/types";
 
 const STATUS_LABELS: Record<MatchStatus, string> = {
   pending: "Diajukan",
@@ -57,9 +59,6 @@ function backendMatchToItem(match: MatchOut): FinancingItem {
       match.match_score != null
         ? `${Math.round(match.match_score * 100)}%`
         : "-",
-    detailUrl: product
-      ? `/myqredi/financing/${product.id}`
-      : "/myqredi/financing",
     statusLabel: STATUS_LABELS[match.status],
     statusTone: statusTone(match.status),
   };
@@ -68,9 +67,16 @@ function backendMatchToItem(match: MatchOut): FinancingItem {
 export default function FinancingPage() {
   const { user } = useAuth();
   const [score, setScore] = useState<number>(0);
+  const [rawScore, setRawScore] = useState<ScoreOut | null>(null);
+  const [profile, setProfile] = useState<UMKMProfileOut | null>(null);
   const [category, setCategory] = useState<string>("");
   const [backendMatches, setBackendMatches] = useState<MatchOut[]>([]);
   const [loading, setLoading] = useState(true);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const allApplications = useSyncExternalStore(
     applicationsStore.subscribe,
@@ -86,15 +92,18 @@ export default function FinancingPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [latestScore, matches] = await Promise.all([
+        const [latestScore, matches, umkmProfile] = await Promise.all([
           apiFetch<ScoreOut>("/scores/me/latest"),
           apiFetch<MatchOut[]>("/matches/by-umkm/me").catch(
             () => [] as MatchOut[],
           ),
+          apiFetch<UMKMProfileOut>("/umkm-profiles/me").catch(() => null),
         ]);
 
         const displayScore = Math.round(latestScore.acs_score);
         setScore(displayScore);
+        setRawScore(latestScore);
+        setProfile(umkmProfile);
         setCategory(getRiskCategory(displayScore));
         setBackendMatches(matches);
       } catch {
@@ -105,6 +114,48 @@ export default function FinancingPage() {
     }
     load();
   }, []);
+
+  async function handleApply(item: FinancingItem) {
+    const product = LENDER_PRODUCTS.find((p) => p.id === item.id);
+    if (!product || !user || !rawScore) {
+      setNotification({
+        type: "error",
+        message:
+          "Data profil atau skor kredit belum tersedia. Silakan coba lagi.",
+      });
+      return;
+    }
+
+    setApplyingId(item.id);
+    setNotification(null);
+
+    try {
+      const acsScore = Math.round(rawScore.acs_score);
+      const requestedAmount = defaultRequestedAmount(acsScore, product);
+      const tenorMonths = product.tenorMonths[0];
+
+      await submitApplication({
+        user,
+        profile,
+        score: rawScore,
+        product,
+        requestedAmount,
+        tenorMonths,
+      });
+
+      setNotification({
+        type: "success",
+        message: `Pengajuan ${product.title} (${formatJuta(requestedAmount)}) berhasil diajukan!`,
+      });
+    } catch {
+      setNotification({
+        type: "error",
+        message: "Pengajuan gagal dikirim. Silakan coba lagi.",
+      });
+    } finally {
+      setApplyingId(null);
+    }
+  }
 
   const items = useMemo<FinancingItem[]>(() => {
     // Pengajuan lokal per produk, supaya status bisa ditempel ke kartunya.
@@ -136,7 +187,6 @@ export default function FinancingPage() {
         plafon: formatJuta(offeredLimit),
         interest: `${product.interestRate}%`,
         matchScore: `${getMatchScore(score, product)}%`,
-        detailUrl: `/myqredi/financing/${product.id}`,
         statusLabel: application ? STATUS_LABELS[application.status] : undefined,
         statusTone: application ? statusTone(application.status) : undefined,
       } satisfies FinancingItem;
@@ -163,6 +213,32 @@ export default function FinancingPage() {
 
   return (
     <div className="space-y-6">
+      {/* Alert Notification */}
+      {notification && (
+        <div
+          className={`flex items-center gap-2 rounded-2xl p-4 text-sm font-medium border shadow-sm transition-all ${
+            notification.type === "success"
+              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+              : "bg-rose-50 border-rose-200 text-rose-800"
+          }`}
+        >
+          {notification.type === "success" ? (
+            <CheckCircle size={20} weight="fill" className="shrink-0 text-emerald-600" />
+          ) : (
+            <WarningCircle size={20} weight="fill" className="shrink-0 text-rose-600" />
+          )}
+          <span className="flex-1 leading-snug">{notification.message}</span>
+          <button
+            type="button"
+            onClick={() => setNotification(null)}
+            className="p-1 rounded-md text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer"
+            aria-label="Tutup"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Card Ringkasan Skor */}
       <div className="border border-border bg-surface p-5 rounded-2xl shadow-sm space-y-3">
         <div>
@@ -190,7 +266,14 @@ export default function FinancingPage() {
 
         <div className="space-y-4">
           {items.length > 0 ? (
-            items.map((item) => <FinancingCard key={item.id} item={item} />)
+            items.map((item) => (
+              <FinancingCard
+                key={item.id}
+                item={item}
+                onApply={handleApply}
+                isApplying={applyingId === item.id}
+              />
+            ))
           ) : (
             <div className="text-center py-8 text-muted">
               Belum ada rekomendasi pembiayaan saat ini.

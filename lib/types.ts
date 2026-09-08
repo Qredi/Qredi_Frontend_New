@@ -69,6 +69,20 @@ export interface ScoreOut {
    * `new Date(undefined)` -> Invalid Date.
    */
   created_at?: string;
+  shap_values?: Record<string, number> | Array<{
+    feature?: string;
+    shap_contribution?: number;
+    shap_value?: number;
+    direction?: string;
+    raw_value?: number;
+  }> | null;
+  top_features?: Array<{
+    category?: string;
+    impact?: string;
+    summary?: string;
+    feature?: string;
+    shap_contribution?: number;
+  }> | null;
 }
 
 export interface MatchOut {
@@ -125,7 +139,7 @@ export interface ACSScoreResponse {
 }
 
 export interface BackendDetailError {
-  detail: string;
+  detail: string | BackendValidationDetail[];
 }
 
 export interface BackendValidationDetail {
