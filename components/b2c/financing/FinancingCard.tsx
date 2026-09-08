@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { ArrowRight } from "@phosphor-icons/react";
+import { CheckCircle, PaperPlaneTilt } from "@phosphor-icons/react";
 
 export interface FinancingItem {
   id: string;
@@ -11,7 +10,7 @@ export interface FinancingItem {
   plafon: string;
   interest: string;
   matchScore: string;
-  detailUrl: string;
+  detailUrl?: string;
   /** Diisi hanya kalau UMKM sudah mengajukan produk ini. */
   statusLabel?: string;
   statusTone?: "pending" | "accepted" | "rejected";
@@ -19,6 +18,8 @@ export interface FinancingItem {
 
 interface FinancingCardProps {
   item: FinancingItem;
+  onApply?: (item: FinancingItem) => void;
+  isApplying?: boolean;
 }
 
 const STATUS_TONES: Record<
@@ -30,7 +31,13 @@ const STATUS_TONES: Record<
   rejected: "text-rose-700 bg-rose-50 border-rose-200",
 };
 
-export default function FinancingCard({ item }: FinancingCardProps) {
+export default function FinancingCard({
+  item,
+  onApply,
+  isApplying = false,
+}: FinancingCardProps) {
+  const isApplied = Boolean(item.statusLabel);
+
   return (
     <div className="border border-border bg-surface p-5 rounded-2xl shadow-sm space-y-4">
       {/* 1. Header Produk & Lembaga */}
@@ -86,15 +93,24 @@ export default function FinancingCard({ item }: FinancingCardProps) {
         </div>
       </div>
 
-      {/* 3. Footer Action Button */}
-      <div className="pt-1">
-        <Link
-          href={item.detailUrl}
-          className="flex items-center justify-between text-teal-700 hover:text-teal-800 text-sm font-semibold pt-2 border-t border-border/40 transition-colors"
-        >
-          <span>Lihat Selengkapnya</span>
-          <ArrowRight size={16} weight="bold" />
-        </Link>
+      {/* 3. Action Button: Ajukan Sekarang / Sudah Diajukan */}
+      <div className="pt-2 border-t border-border/60">
+        {isApplied ? (
+          <div className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-50 border border-slate-200 py-2.5 px-4 text-sm font-semibold text-muted">
+            <CheckCircle size={18} weight="fill" className="text-emerald-500 shrink-0" />
+            <span>Sudah Diajukan ({item.statusLabel})</span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onApply?.(item)}
+            disabled={isApplying}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 px-4 text-sm font-semibold text-white transition-all hover:bg-primary/90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer shadow-sm"
+          >
+            <PaperPlaneTilt size={16} weight="fill" />
+            <span>{isApplying ? "Mengajukan..." : "Ajukan Sekarang"}</span>
+          </button>
+        )}
       </div>
     </div>
   );

@@ -87,7 +87,22 @@ export async function login(email: string, password: string) {
     let detail = "Login failed";
     try {
       const data = (await res.json()) as BackendDetailError;
-      if (data.detail) detail = data.detail;
+      if (data.detail) {
+        if (typeof data.detail === "string") {
+          detail = data.detail;
+        } else if (Array.isArray(data.detail)) {
+          detail = data.detail
+            .map((item: unknown) => {
+              if (typeof item === "object" && item !== null && "msg" in item) {
+                return String((item as { msg: unknown }).msg);
+              }
+              return JSON.stringify(item);
+            })
+            .join(", ");
+        } else {
+          detail = JSON.stringify(data.detail);
+        }
+      }
     } catch {
       // ignore
     }
