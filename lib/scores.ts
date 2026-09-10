@@ -68,38 +68,106 @@ export function buildScoreTrend(
   history: ScoreOut[],
   maxPoints: number = TREND_POINTS,
 ): ScoreTrend {
-  const ordered = [...history].reverse(); // jadi terlama -> terbaru
-  const recent = ordered.slice(-maxPoints);
-
-  if (recent.length === 0) {
+  if (!history || history.length === 0) {
     return { points: [], diff: 0, hasDates: false, isFlat: true };
   }
 
-  const hasDates = recent.every((s) => {
-    if (!s.created_at) return false;
-    return !Number.isNaN(new Date(s.created_at).getTime());
+  // Jika riwayat penilaian hanya 1 kali, belum ada riwayat tren
+  if (history.length === 1) {
+    const s = history[0];
+    const now = new Date();
+    return {
+      points: [
+        {
+          month: MONTH_NAMES[now.getMonth()],
+          score: Math.round(s.acs_score),
+        },
+      ],
+      diff: 0,
+      hasDates: Boolean(s.created_at),
+      isFlat: true,
+    };
+  }
+
+  const ordered = [...history].reverse(); // jadi terlama -> terbaru
+  const now = new Date();
+
+  // Susun 5 bulan terakhir secara mundur dari bulan berjalan (terlama -> terbaru)
+  // Contoh jika bulan berjalan September: [Mei, Jun, Jul, Agu, Sep]
+  const targetMonths = Array.from({ length: maxPoints }, (_, i) => {
+    const d = new Date(
+      now.getFullYear(),
+      now.getMonth() - (maxPoints - 1 - i),
+      1,
+    );
+    return {
+      monthName: MONTH_NAMES[d.getMonth()],
+      year: d.getFullYear(),
+      month: d.getMonth(),
+    };
   });
 
-  // Tanpa `created_at` dari backend, penilaian dipetakan ke N bulan terakhir
-  // (yang terbaru = bulan berjalan). Urutannya nyata, tanggalnya perkiraan.
-  const now = new Date();
-  const monthLabel = (index: number) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (recent.length - 1 - index), 1);
-    return MONTH_NAMES[d.getMonth()];
-  };
+  // Periksa apakah data history memiliki created_at dan mencakup lebih dari 1 bulan kalender berbeda
+  const datedScores = ordered.filter(
+    (s) => s.created_at && !Number.isNaN(new Date(s.created_at).getTime()),
+  );
+  const distinctMonths = new Set(
+    datedScores.map((s) => {
+      const d = new Date(s.created_at as string);
+      return `${d.getFullYear()}-${d.getMonth()}`;
+    }),
+  );
 
-  const points: ScorePoint[] = recent.map((s, index) => ({
-    month: hasDates
-      ? MONTH_NAMES[new Date(s.created_at as string).getMonth()]
-      : monthLabel(index),
-    score: Math.round(s.acs_score),
-  }));
+  let points: ScorePoint[];
+
+  if (distinctMonths.size >= 2) {
+    // Ada riwayat penilaian nyata di beberapa bulan berbeda
+    // Untuk tiap bulan dari 5 bulan terakhir, ambil penilaian terbaru hingga akhir bulan tersebut
+    points = targetMonths.map((tm) => {
+      const endOfMonth = new Date(tm.year, tm.month + 1, 0, 23, 59, 59, 999);
+      const candidateScores = datedScores.filter(
+        (s) => new Date(s.created_at as string) <= endOfMonth,
+      );
+
+      let chosenScore: number;
+      if (candidateScores.length > 0) {
+        chosenScore = candidateScores[candidateScores.length - 1].acs_score;
+      } else {
+        chosenScore = datedScores[0].acs_score;
+      }
+
+      return {
+        month: tm.monthName,
+        score: Math.round(chosenScore),
+      };
+    });
+  } else {
+    // Semua penilaian berada di bulan yang sama atau tanpa tanggal terpisah.
+    // Petakan urutan penilaian ke 5 bulan ke belakang secara proporsional.
+    const recentScores = ordered
+      .slice(-maxPoints)
+      .map((s) => Math.round(s.acs_score));
+
+    const paddedScores: number[] = [];
+    const missingCount = maxPoints - recentScores.length;
+    const earliestScore = recentScores[0];
+
+    for (let i = 0; i < missingCount; i++) {
+      paddedScores.push(earliestScore);
+    }
+    paddedScores.push(...recentScores);
+
+    points = targetMonths.map((tm, idx) => ({
+      month: tm.monthName,
+      score: paddedScores[idx],
+    }));
+  }
 
   const scores = points.map((p) => p.score);
   const diff = scores[scores.length - 1] - scores[0];
   const isFlat = scores.every((s) => s === scores[0]);
 
-  return { points, diff, hasDates, isFlat };
+  return { points, diff, hasDates: distinctMonths.size >= 2, isFlat };
 }
 
 /** Teks insight yang menjelaskan kondisi skor apa adanya. */

@@ -24,7 +24,13 @@ export default function ScoreTrend({
           <p className="text-sm text-muted">Trend 5 bulan terakhir</p>
         </div>
 
-        <span className="text-sm font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
+        <span
+          className={`text-sm font-semibold px-2 py-0.5 rounded-md ${
+            diffPoin.trim().startsWith("-")
+              ? "text-rose-600 bg-rose-50"
+              : "text-emerald-600 bg-emerald-50"
+          }`}
+        >
           {diffPoin}
         </span>
       </div>
@@ -36,7 +42,7 @@ export default function ScoreTrend({
 
           return (
             <div
-              key={item.month}
+              key={`${item.month}-${idx}`}
               className="flex-1 flex flex-col items-center gap-2"
             >
               <span

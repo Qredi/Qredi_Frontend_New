@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import type { UserRole } from "@/lib/types";
@@ -12,12 +12,6 @@ interface RequireAuthProps {
   children: React.ReactNode;
 }
 
-/**
- * Arahkan pengunjung yang belum login (atau salah role) ke halaman login.
- *
- * Anak komponen tetap dirender supaya markup server dan client identik —
- * pengalihan dilakukan lewat effect, bukan dengan menahan render.
- */
 export default function RequireAuth({
   loginPath,
   allow,
@@ -25,9 +19,14 @@ export default function RequireAuth({
 }: RequireAuthProps) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (isLoading) return;
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || isLoading) return;
 
     if (!user) {
       router.replace(loginPath);
@@ -37,7 +36,21 @@ export default function RequireAuth({
     if (allow && !allow.includes(user.role)) {
       router.replace(user.role === "umkm" ? "/myqredi/score" : "/dashboard");
     }
-  }, [isLoading, user, allow, loginPath, router]);
+  }, [isLoading, mounted, user, allow, loginPath, router]);
+
+  
+  if (!mounted || isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-teal-500 border-t-transparent" />
+      </div>
+    );
+  }
+
+  // Jika tidak ada user atau role tidak diizinkan, jangan render anak komponen
+  if (!user || (allow && !allow.includes(user.role))) {
+    return null;
+  }
 
   return <>{children}</>;
 }

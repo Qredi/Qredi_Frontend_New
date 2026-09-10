@@ -107,10 +107,6 @@ export default function DashboardPage() {
         ]);
         setPipeline(merchants);
         setBackendApplications(applications);
-        setLoading(false);
-
-        // Pass kedua: Fraud Risk butuh satu request transaksi per merchant.
-        setPipeline(await enrichWithFraudRisk(merchants));
       } catch (err) {
         console.error("Failed to load dashboard data:", err);
       } finally {
