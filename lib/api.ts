@@ -15,30 +15,50 @@ export class ApiError extends Error {
   }
 }
 
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("qredi-auth-token");
+export type PortalType = "b2c" | "b2b";
+
+export const STORAGE_KEY_B2C = "qredi-b2c-token";
+export const STORAGE_KEY_B2B = "qredi-b2b-token";
+const LEGACY_STORAGE_KEY = "qredi-auth-token";
+
+export function getCurrentPortal(): PortalType {
+  if (typeof window === "undefined") return "b2c";
+  return window.location.pathname.startsWith("/dashboard") ? "b2b" : "b2c";
 }
 
-export function setAuthToken(token: string | null) {
+export function getAuthToken(portal?: PortalType): string | null {
+  if (typeof window === "undefined") return null;
+  const activePortal = portal ?? getCurrentPortal();
+  const key = activePortal === "b2b" ? STORAGE_KEY_B2B : STORAGE_KEY_B2C;
+  return localStorage.getItem(key) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
+}
+
+export function setAuthToken(token: string | null, portal?: PortalType) {
   if (typeof window === "undefined") return;
+  const activePortal = portal ?? getCurrentPortal();
+  const key = activePortal === "b2b" ? STORAGE_KEY_B2B : STORAGE_KEY_B2C;
   if (token) {
-    localStorage.setItem("qredi-auth-token", token);
+    localStorage.setItem(key, token);
   } else {
-    localStorage.removeItem("qredi-auth-token");
+    localStorage.removeItem(key);
   }
+  // Hapus legacy token agar tidak terjadi benturan
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
 }
 
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = getAuthToken();
   const headers = new Headers(options.headers);
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  if (!headers.has("Authorization")) {
+    const token = getAuthToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
   }
+
   if (
     !headers.has("Content-Type") &&
     !(options.body instanceof FormData) &&

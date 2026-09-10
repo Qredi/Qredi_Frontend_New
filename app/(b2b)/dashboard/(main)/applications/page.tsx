@@ -41,11 +41,6 @@ export default function ApplicationsPage() {
         ]);
         setPipeline(merchants);
         setBackendApplications(applications);
-        setLoading(false);
-
-        // Pass kedua: Fraud Risk butuh satu request transaksi per merchant,
-        // jadi tabel ditampilkan dulu baru badge-nya menyusul.
-        setPipeline(await enrichWithFraudRisk(merchants));
       } finally {
         setLoading(false);
       }

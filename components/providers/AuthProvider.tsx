@@ -5,11 +5,16 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
-import { apiFetch, login as apiLogin, setAuthToken } from "@/lib/api";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  apiFetch,
+  getAuthToken,
+  login as apiLogin,
+  setAuthToken,
+  type PortalType,
+} from "@/lib/api";
 import type { UserOut } from "@/lib/types";
 
 interface AuthContextValue {
@@ -22,44 +27,66 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function readStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("qredi-auth-token");
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const portal: PortalType = pathname?.startsWith("/dashboard") ? "b2b" : "b2c";
+
   const [user, setUser] = useState<UserOut | null>(null);
-  const [token, setToken] = useState<string | null>(readStoredToken);
+  const [token, setToken] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const router = useRouter();
-  const initRef = useRef(false);
-  const [authChecked, setAuthChecked] = useState(() => !readStoredToken());
 
+  // Load session spesifik untuk portal yang sedang aktif (B2C /myqredi vs B2B /dashboard)
   useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
+    const stored = getAuthToken(portal);
+    setToken(stored);
 
-    const stored = readStoredToken();
-    if (!stored) return;
+    if (!stored) {
+      setUser(null);
+      setAuthChecked(true);
+      return;
+    }
 
-    apiFetch<UserOut>("/users/me")
-      .then((u) => setUser(u))
+    setAuthChecked(false);
+    apiFetch<UserOut>("/users/me", {
+      headers: { Authorization: `Bearer ${stored}` },
+    })
+      .then((u) => {
+        // Validasi agar role user selaras dengan portal aktif
+        const isB2BUser = u.role === "lender" || u.role === "admin";
+        const isB2CUser = u.role === "umkm";
+
+        if ((portal === "b2b" && isB2BUser) || (portal === "b2c" && isB2CUser)) {
+          setUser(u);
+        } else {
+          // Token ada tapi rolenya untuk portal lain
+          setUser(null);
+        }
+      })
       .catch(() => {
-        setAuthToken(null);
+        setAuthToken(null, portal);
         setToken(null);
+        setUser(null);
       })
       .finally(() => setAuthChecked(true));
-  }, []);
+  }, [portal]);
 
   const isLoading = !authChecked;
 
   const login = useCallback(
     async (email: string, password: string) => {
       const data = await apiLogin(email, password);
-      setAuthToken(data.access_token);
+      // Ambil profile dengan token baru secara eksplisit
+      const me = await apiFetch<UserOut>("/users/me", {
+        headers: { Authorization: `Bearer ${data.access_token}` },
+      });
+
+      const userPortal: PortalType = me.role === "umkm" ? "b2c" : "b2b";
+      setAuthToken(data.access_token, userPortal);
       setToken(data.access_token);
-      setAuthChecked(true);
-      const me = await apiFetch<UserOut>("/users/me");
       setUser(me);
+      setAuthChecked(true);
+
       if (me.role === "umkm") {
         router.push("/myqredi/score");
       } else {
@@ -70,11 +97,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    setAuthToken(null);
+    setAuthToken(null, portal);
     setToken(null);
     setUser(null);
-    router.push("/");
-  }, [router]);
+    if (portal === "b2b") {
+      router.push("/dashboard/login");
+    } else {
+      router.push("/myqredi/login");
+    }
+  }, [portal, router]);
 
   return (
     <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
