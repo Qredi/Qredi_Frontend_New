@@ -101,11 +101,8 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [merchants, applications] = await Promise.all([
-          loadMerchantPipeline(),
-          loadBackendApplications(),
-        ]);
-        setPipeline(merchants);
+        const applications = await loadBackendApplications();
+        setPipeline(applications);   // reuse pipeline state as the scored list
         setBackendApplications(applications);
       } catch (err) {
         console.error("Failed to load dashboard data:", err);
@@ -124,13 +121,10 @@ export default function DashboardPage() {
     return [...backendApplications, ...local];
   }, [backendApplications, localApplications]);
 
-  const rows = useMemo(
-    () => mergeApplications(pipeline, applications),
-    [pipeline, applications],
-  );
+  const rows = applications;
 
   const kpis = useMemo(() => {
-    const scored = pipeline.filter((a) => a.score != null || a.creditScore > 0);
+    const scored = applications.filter((a) => a.score != null || a.creditScore > 0);
     const averageScore =
       scored.length > 0
         ? scored.reduce((sum, a) => sum + a.creditScore, 0) / scored.length

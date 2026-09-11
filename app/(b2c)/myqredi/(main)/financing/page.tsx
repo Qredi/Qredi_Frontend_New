@@ -6,17 +6,12 @@ import FinancingCard from "@/components/b2c/financing/FinancingCard";
 import type { FinancingItem } from "@/components/b2c/financing/FinancingCard";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { apiFetch } from "@/lib/api";
-import {
-  applicationsForUmkm,
-  applicationsStore,
-} from "@/lib/applications-store";
+// import {
+//   applicationsForUmkm,
+//   applicationsStore,
+// } from "@/lib/applications-store";
 import { defaultRequestedAmount, submitApplication } from "@/lib/financing";
-import {
-  formatJuta,
-  getMatchScore,
-  getOfferedLimit,
-  LENDER_PRODUCTS,
-} from "@/lib/lenders";
+import { formatJuta, loadLenderProducts, type LenderProduct } from "@/lib/lenders";
 import { getRiskCategory } from "@/lib/scores";
 import type { MatchStatus, MatchOut, ScoreOut, UMKMProfileOut } from "@/lib/types";
 
@@ -38,31 +33,31 @@ function statusTone(status: MatchStatus): FinancingItem["statusTone"] {
  * produk, jadi `reason` dipakai untuk mencocokkannya dengan katalog produk;
  * kalau tidak ketemu, data mentah dari backend yang ditampilkan.
  */
-function backendMatchToItem(match: MatchOut): FinancingItem {
-  const product = LENDER_PRODUCTS.find((p) =>
-    match.reason?.startsWith(p.title),
-  );
+// function backendMatchToItem(match: MatchOut): FinancingItem {
+//   const product = LENDER_PRODUCTS.find((p) =>
+//     match.reason?.startsWith(p.title),
+//   );
 
-  return {
-    id: match.id,
-    initial: product?.initial ?? "M",
-    title: product?.title ?? "Pembiayaan UMKM",
-    institution: product?.institution ?? "Mitra Keuangan",
-    plafon: match.recommended_limit
-      ? formatJuta(match.recommended_limit)
-      : "Hubungi Lender",
-    interest:
-      match.recommended_interest != null
-        ? `${match.recommended_interest}%`
-        : "-",
-    matchScore:
-      match.match_score != null
-        ? `${Math.round(match.match_score * 100)}%`
-        : "-",
-    statusLabel: STATUS_LABELS[match.status],
-    statusTone: statusTone(match.status),
-  };
-}
+//   return {
+//     id: match.id,
+//     initial: product?.initial ?? "M",
+//     title: product?.title ?? "Pembiayaan UMKM",
+//     institution: product?.institution ?? "Mitra Keuangan",
+//     plafon: match.recommended_limit
+//       ? formatJuta(match.recommended_limit)
+//       : "Hubungi Lender",
+//     interest:
+//       match.recommended_interest != null
+//         ? `${match.recommended_interest}%`
+//         : "-",
+//     matchScore:
+//       match.match_score != null
+//         ? `${Math.round(match.match_score * 100)}%`
+//         : "-",
+//     statusLabel: STATUS_LABELS[match.status],
+//     statusTone: statusTone(match.status),
+//   };
+// }
 
 export default function FinancingPage() {
   const { user } = useAuth();
@@ -77,27 +72,28 @@ export default function FinancingPage() {
     type: "success" | "error";
     message: string;
   } | null>(null);
+  const [products, setProducts] = useState<LenderProduct[]>([]);
 
-  const allApplications = useSyncExternalStore(
-    applicationsStore.subscribe,
-    applicationsStore.getSnapshot,
-    applicationsStore.getServerSnapshot,
-  );
 
-  const myApplications = useMemo(
-    () => applicationsForUmkm(allApplications, user?.id),
-    [allApplications, user?.id],
-  );
+  // const allApplications = useSyncExternalStore(
+  //   applicationsStore.subscribe,
+  //   applicationsStore.getSnapshot,
+  //   applicationsStore.getServerSnapshot,
+  // );
+
+  // const myApplications = useMemo(
+  //   () => applicationsForUmkm(allApplications, user?.id),
+  //   [allApplications, user?.id],
+  // );
 
   useEffect(() => {
     async function load() {
       try {
-        const [latestScore, matches, umkmProfile] = await Promise.all([
+        const [latestScore, matches, umkmProfile, lenderProducts] = await Promise.all([
           apiFetch<ScoreOut>("/scores/me/latest"),
-          apiFetch<MatchOut[]>("/matches/by-umkm/me").catch(
-            () => [] as MatchOut[],
-          ),
+          apiFetch<MatchOut[]>("/matches/by-umkm/me").catch(() => [] as MatchOut[]),
           apiFetch<UMKMProfileOut>("/umkm-profiles/me").catch(() => null),
+          loadLenderProducts(),
         ]);
 
         const displayScore = Math.round(latestScore.acs_score);
@@ -106,6 +102,7 @@ export default function FinancingPage() {
         setProfile(umkmProfile);
         setCategory(getRiskCategory(displayScore));
         setBackendMatches(matches);
+        setProducts(lenderProducts);
       } catch {
         // keep defaults
       } finally {
@@ -116,12 +113,11 @@ export default function FinancingPage() {
   }, []);
 
   async function handleApply(item: FinancingItem) {
-    const product = LENDER_PRODUCTS.find((p) => p.id === item.id);
+    const product = products.find((p) => p.id === item.id);
     if (!product || !user || !rawScore) {
       setNotification({
         type: "error",
-        message:
-          "Data profil atau skor kredit belum tersedia. Silakan coba lagi.",
+        message: "Data profil atau skor kredit belum tersedia. Silakan coba lagi.",
       });
       return;
     }
@@ -132,7 +128,7 @@ export default function FinancingPage() {
     try {
       const acsScore = Math.round(rawScore.acs_score);
       const requestedAmount = defaultRequestedAmount(acsScore, product);
-      const tenorMonths = product.tenorMonths[0];
+      const tenorMonths = 6; // tidak ada field tenor di LenderProfile, default sementara
 
       await submitApplication({
         user,
@@ -145,7 +141,7 @@ export default function FinancingPage() {
 
       setNotification({
         type: "success",
-        message: `Pengajuan ${product.title} (${formatJuta(requestedAmount)}) berhasil diajukan!`,
+        message: `Pengajuan ${product.institution} (${formatJuta(requestedAmount)}) berhasil diajukan!`,
       });
     } catch {
       setNotification({
@@ -158,48 +154,34 @@ export default function FinancingPage() {
   }
 
   const items = useMemo<FinancingItem[]>(() => {
-    // Pengajuan lokal per produk, supaya status bisa ditempel ke kartunya.
-    const localByProduct = new Map(
-      myApplications.map((a) => [a.productId, a]),
-    );
+  const matchByLender = new Map(backendMatches.map((m) => [m.lender_id, m]));
 
-    const backendItems = backendMatches.map(backendMatchToItem);
-    const backendProductIds = new Set(
-      backendMatches
-        .map((m) => LENDER_PRODUCTS.find((p) => m.reason?.startsWith(p.title)))
-        .filter((p): p is (typeof LENDER_PRODUCTS)[number] => p != null)
-        .map((p) => p.id),
-    );
+  return products.map((product) => {
+    const match = matchByLender.get(product.lenderId);
 
-    const catalogItems = LENDER_PRODUCTS.filter(
-      (product) => !backendProductIds.has(product.id),
-    ).map((product) => {
-      const application = localByProduct.get(product.id);
-      const offeredLimit = application
-        ? application.requestedAmount
-        : getOfferedLimit(score, product);
-
-      return {
-        id: product.id,
-        initial: product.initial,
-        title: product.title,
-        institution: product.institution,
-        plafon: formatJuta(offeredLimit),
-        interest: `${product.interestRate}%`,
-        matchScore: `${getMatchScore(score, product)}%`,
-        statusLabel: application ? STATUS_LABELS[application.status] : undefined,
-        statusTone: application ? statusTone(application.status) : undefined,
-      } satisfies FinancingItem;
-    });
-
-    // Produk yang sudah diajukan naik ke atas, lalu kecocokan tertinggi.
-    return [...backendItems, ...catalogItems].sort((a, b) => {
-      const aApplied = a.statusLabel ? 1 : 0;
-      const bApplied = b.statusLabel ? 1 : 0;
-      if (aApplied !== bApplied) return bApplied - aApplied;
-      return parseInt(b.matchScore) - parseInt(a.matchScore);
-    });
-  }, [backendMatches, myApplications, score]);
+    return {
+      id: product.id,
+      initial: product.institution.charAt(0).toUpperCase(),
+      title: product.institution,
+      institution: product.institution,
+      plafon: match?.recommended_limit
+        ? formatJuta(match.recommended_limit)
+        : product.maxLimit
+          ? formatJuta(product.maxLimit)
+          : "Hubungi Lender",
+      interest:
+        match?.recommended_interest != null
+          ? `${match.recommended_interest}%`
+          : "-",
+      matchScore:
+        match?.match_score != null
+          ? `${Math.round(match.match_score * 100)}%`
+          : `${score}%`,
+      statusLabel: match ? STATUS_LABELS[match.status] : undefined,
+      statusTone: match ? statusTone(match.status) : undefined,
+    } satisfies FinancingItem;
+  });
+}, [products, backendMatches, score]);
 
   if (loading) {
     return (

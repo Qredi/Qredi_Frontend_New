@@ -35,11 +35,8 @@ export default function ApplicationsPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [merchants, applications] = await Promise.all([
-          loadMerchantPipeline(),
-          loadBackendApplications(),
-        ]);
-        setPipeline(merchants);
+        const applications = await loadBackendApplications();
+        setPipeline(applications);
         setBackendApplications(applications);
       } finally {
         setLoading(false);
@@ -56,10 +53,7 @@ export default function ApplicationsPage() {
     return [...backendApplications, ...local];
   }, [backendApplications, localApplications]);
 
-  const rows = useMemo(
-    () => mergeApplications(pipeline, applications),
-    [pipeline, applications],
-  );
+  const rows = applications;
 
   const filteredApplications = useMemo(() => {
     const query = searchQuery.toLowerCase();

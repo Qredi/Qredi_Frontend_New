@@ -203,8 +203,13 @@ export async function loadBackendApplications(
 
   const profilesByUser = profiles ?? (await loadProfilesByUser());
 
-  return matches.map((match) => {
+  const scores = await Promise.all(
+    matches.map((m) => tryFetch<ScoreOut>(`/scores/by-user/${m.umkm_id}/latest`)),
+  );
+
+  return matches.map((match, i) => {
     const profile = profilesByUser.get(match.umkm_id) ?? null;
+    const score = scores[i];
     return {
       id: match.id,
       merchantName:
@@ -212,8 +217,8 @@ export async function loadBackendApplications(
       businessType: profile?.business_type
         ? toTitle(profile.business_type)
         : "UMKM",
-      creditScore: (match.match_score ?? 0) * 100,
-      riskLevel: "Medium" as const,
+      creditScore: score ? score.acs_score : (match.match_score ?? 0) * 100,
+      riskLevel: score ? riskToCap(score.risk_level) : "Medium",
       fraudRisk: "Low" as const,
       requestedAmount: match.recommended_limit
         ? `Rp ${match.recommended_limit.toLocaleString("id-ID")}`
@@ -221,7 +226,7 @@ export async function loadBackendApplications(
       submittedAt: "",
       userId: match.umkm_id,
       profile,
-      score: null,
+      score: score ?? null,
       isApplication: true,
     };
   });
